@@ -21,6 +21,7 @@
 | ---- | ------ | ------- |
 | <a name="module_naming"></a> [naming](#module\_naming) | Azure/naming/azurerm | ~> 0.4 |
 | <a name="module_naming_scanner"></a> [naming\_scanner](#module\_naming\_scanner) | Azure/naming/azurerm | ~> 0.4 |
+| <a name="module_naming_scanner_active"></a> [naming\_scanner\_active](#module\_naming\_scanner\_active) | Azure/naming/azurerm | ~> 0.4 |
 
 ## Resources
 
@@ -46,7 +47,11 @@
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_active_scan_cron_expression"></a> [active\_scan\_cron\_expression](#input\_active\_scan\_cron\_expression) | When the active (attack) scan runs, in **UTC**. The default is 04:00 UTC on Sundays — two hours after that night's passive scan starts, which is that scan's full timeout, so the two never overlap on the same app. | `string` | `"0 4 * * 0"` | no |
+| <a name="input_active_scan_timeout_seconds"></a> [active\_scan\_timeout\_seconds](#input\_active\_scan\_timeout\_seconds) | Upper bound on one whole active run, across every target. Active scans take far longer per app than passive ones. | `number` | `21600` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment. Drives resource naming, and selects which shared platform environment this project deploys onto. | `string` | n/a | yes |
+| <a name="input_passive_scan_cron_expression"></a> [passive\_scan\_cron\_expression](#input\_passive\_scan\_cron\_expression) | When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST. | `string` | `"0 2 * * *"` | no |
+| <a name="input_passive_scan_timeout_seconds"></a> [passive\_scan\_timeout\_seconds](#input\_passive\_scan\_timeout\_seconds) | Upper bound on one whole passive run, across every target. | `number` | `7200` | no |
 | <a name="input_platform_action_group_name"></a> [platform\_action\_group\_name](#input\_platform\_action\_group\_name) | Name of the shared action group the findings alert notifies. | `string` | `"mag-platform-dev"` | no |
 | <a name="input_platform_environment_name"></a> [platform\_environment\_name](#input\_platform\_environment\_name) | Name of the shared Container Apps environment the scanner job runs on. | `string` | `"cae-platform-dev"` | no |
 | <a name="input_platform_log_analytics_workspace_name"></a> [platform\_log\_analytics\_workspace\_name](#input\_platform\_log\_analytics\_workspace\_name) | Name of the shared Log Analytics workspace the environment logs to. The findings alert queries it. | `string` | `"log-platform-dev"` | no |
@@ -54,9 +59,7 @@
 | <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Short name for this project, used by the naming module for every resource. | `string` | `"sectest"` | no |
 | <a name="input_report_reader_object_ids"></a> [report\_reader\_object\_ids](#input\_report\_reader\_object\_ids) | Extra Entra object IDs granted Storage Blob Data Reader on the reports container. Whoever runs `terraform apply` is always included, so this is only for a second person or a second machine. | `list(string)` | `[]` | no |
 | <a name="input_report_retention_days"></a> [report\_retention\_days](#input\_report\_retention\_days) | Days scan reports are kept before the lifecycle policy deletes them. | `number` | `90` | no |
-| <a name="input_scan_cron_expression"></a> [scan\_cron\_expression](#input\_scan\_cron\_expression) | When the scan runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST, when scan traffic is least likely to land on top of real use. | `string` | `"0 2 * * *"` | no |
 | <a name="input_scan_fail_on"></a> [scan\_fail\_on](#input\_scan\_fail\_on) | Lowest ZAP alert risk that raises the findings alert: `Low`, `Medium` or `High`. Findings never fail the job itself — see main.alerts.tf. | `string` | `"High"` | no |
-| <a name="input_scan_timeout_seconds"></a> [scan\_timeout\_seconds](#input\_scan\_timeout\_seconds) | Upper bound on one whole scan run, across every target. | `number` | `7200` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags merged over the defaults in locals.tf. | `map(string)` | `{}` | no |
 | <a name="input_target_subscription_ids"></a> [target\_subscription\_ids](#input\_target\_subscription\_ids) | Subscription IDs to discover container apps in. The scanner's identity gets Reader on each. Empty means the subscription this is applied into. | `list(string)` | `[]` | no |
 
@@ -68,5 +71,6 @@
 | <a name="output_reports_container_url"></a> [reports\_container\_url](#output\_reports\_container\_url) | Blob container scan reports are written to, for `make reports`. |
 | <a name="output_reports_storage_account_name"></a> [reports\_storage\_account\_name](#output\_reports\_storage\_account\_name) | Storage account holding the reports, for `az storage blob download --auth-mode login`. |
 | <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | This project's resource group. |
-| <a name="output_scanner_job_name"></a> [scanner\_job\_name](#output\_scanner\_job\_name) | Name of the scanner job, for `make deploy` and for starting a run by hand with `make scan`. |
+| <a name="output_scanner_job_name_active"></a> [scanner\_job\_name\_active](#output\_scanner\_job\_name\_active) | Name of the weekly active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`. |
+| <a name="output_scanner_job_name_passive"></a> [scanner\_job\_name\_passive](#output\_scanner\_job\_name\_passive) | Name of the nightly passive scanner job, for `make deploy` and `make scan`. |
 <!-- END_TF_DOCS -->

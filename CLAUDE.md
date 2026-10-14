@@ -9,7 +9,12 @@ the shared platform environment from
 [jay-withers/azure-container-apps](https://github.com/jay-withers/azure-container-apps).
 It discovers every container app with external ingress (Azure Resource Graph),
 scans each one over the public internet, and writes the reports to Blob
-Storage. It is a platform *tenant* shaped like
+Storage. There are two jobs on the same image, chosen by `SCAN_PROFILE`:
+**passive**, nightly, for every app, which never sends attack payloads, and
+**active**, weekly, which is **opt-out** (`security-scan-mode = "passive"`)
+and attacks. `security-scan = "false"` skips an app in both. The passive
+profile must never attack. `zap-api-scan.py` is active by default, so it
+always gets `-S` there, and `test_passive_profile_never_attacks` guards this. It is a platform *tenant* shaped like
 [jay-withers/finances](https://github.com/jay-withers/finances): follow that
 repo's conventions when in doubt.
 
@@ -37,8 +42,11 @@ repo's conventions when in doubt.
   `log-platform-dev`, `mag-platform-dev`). The resource group takes its
   location from the environment, because a job must be in its environment's
   region.
-- The job name comes from `module.naming_scanner`
-  (`caj-<project>-<env>-zap`), because the platform's workload-crashed alert
+- Job names come from `module.naming_scanner` (`caj-<project>-<env>-zap`,
+  passive) and `module.naming_scanner_active` (`…-zapfull`, active). They're
+  `for_each` over `local.scan_profiles`, and a `moved` block keeps the
+  original single job as `["passive"]`. Names carry the workload because the
+  platform's workload-crashed alert
   splits on `JobName_s`.
 - **Exit codes:** the job exits non-zero only when a scan *failed*, which the
   platform alert catches. Findings exit 0 and are logged as `scan_finished`
@@ -54,10 +62,10 @@ repo's conventions when in doubt.
 
 ## Deploys
 
-Terraform creates the job on a **placeholder image**
+Terraform creates both jobs on a **placeholder image**
 (`local.placeholder_image`) and ignores the image from then on. There is no
 image variable. `make deploy IMAGE_TAG=vX.Y.Z` (`az containerapp job update`)
-is the only thing that sets the scanner image, and it rejects moving tags
+is the only thing that sets the scanner image, always on both jobs, and it rejects moving tags
 (`latest`/`main`). Any apply that creates or replaces the job (the first
 apply, or a ForceNew change like the cron) must be followed by `make deploy`,
 or the job silently runs the placeholder, which exits 0, so no alert fires. `cd-tag` publishes
@@ -87,7 +95,7 @@ make lint      # every pre-commit hook (ruff, hadolint, tflint/checkov per env, 
 make validate  # terraform init -backend=false + validate (no credentials)
 make plan      # needs Azure credentials and the platform applied
 make deploy IMAGE_TAG=vX.Y.Z
-make scan      # start a run now
+make scan      # start a passive run now (PROFILE=active attacks)
 ```
 
 ## Commit messages

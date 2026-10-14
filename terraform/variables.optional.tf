@@ -68,25 +68,47 @@ variable "target_subscription_ids" {
   }
 }
 
-variable "scan_cron_expression" {
-  description = "When the scan runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST, when scan traffic is least likely to land on top of real use."
+variable "passive_scan_cron_expression" {
+  description = "When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST."
   type        = string
   default     = "0 2 * * *"
 
   validation {
-    condition     = can(regex("^\\S+(\\s+\\S+){4}$", trimspace(var.scan_cron_expression)))
-    error_message = "scan_cron_expression must be a 5-field cron expression, e.g. \"0 2 * * *\"."
+    condition     = can(regex("^\\S+(\\s+\\S+){4}$", trimspace(var.passive_scan_cron_expression)))
+    error_message = "passive_scan_cron_expression must be a 5-field cron expression, e.g. \"0 2 * * *\"."
   }
 }
 
-variable "scan_timeout_seconds" {
-  description = "Upper bound on one whole scan run, across every target."
+variable "active_scan_cron_expression" {
+  description = "When the active (attack) scan runs, in **UTC**. The default is 04:00 UTC on Sundays — two hours after that night's passive scan starts, which is that scan's full timeout, so the two never overlap on the same app."
+  type        = string
+  default     = "0 4 * * 0"
+
+  validation {
+    condition     = can(regex("^\\S+(\\s+\\S+){4}$", trimspace(var.active_scan_cron_expression)))
+    error_message = "active_scan_cron_expression must be a 5-field cron expression, e.g. \"0 4 * * 0\"."
+  }
+}
+
+variable "passive_scan_timeout_seconds" {
+  description = "Upper bound on one whole passive run, across every target."
   type        = number
   default     = 7200
 
   validation {
-    condition     = var.scan_timeout_seconds > 0 && var.scan_timeout_seconds <= 86400
-    error_message = "scan_timeout_seconds must be between 1 and 86400."
+    condition     = var.passive_scan_timeout_seconds > 0 && var.passive_scan_timeout_seconds <= 86400
+    error_message = "passive_scan_timeout_seconds must be between 1 and 86400."
+  }
+}
+
+variable "active_scan_timeout_seconds" {
+  description = "Upper bound on one whole active run, across every target. Active scans take far longer per app than passive ones."
+  type        = number
+  default     = 21600
+
+  validation {
+    condition     = var.active_scan_timeout_seconds > 0 && var.active_scan_timeout_seconds <= 86400
+    error_message = "active_scan_timeout_seconds must be between 1 and 86400."
   }
 }
 

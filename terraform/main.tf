@@ -15,18 +15,27 @@ module "naming" {
   suffix  = [var.project_name, var.environment]
 }
 
-# A second instance for the scanner job, suffixed with its workload. The
-# platform's workload-crashed alert splits on JobName_s, so a job's name has to
-# carry which workload it is: caj-<project>-<env>-<workload>.
+# One instance per scanner job, suffixed with its workload. The platform's
+# workload-crashed alert splits on JobName_s, so a job's name has to carry which
+# workload it is: caj-<project>-<env>-<workload>.
 #
-# `caj-sectest-dev-zap` is 19 of the 32 characters container apps allow. The
-# naming module truncates silently rather than failing, so check with
-# `terraform console` before renaming either part.
+# `caj-sectest-dev-zap` (passive) is 19 and `caj-sectest-dev-zapfull` (active)
+# 23 of the 32 characters container apps allow — 31 at the longest
+# project_name. The naming module truncates silently rather than failing, so
+# check with `terraform console` before renaming any part. `zap` is kept for
+# the passive job because renaming it would replace the existing job.
 module "naming_scanner" {
   # checkov:skip=CKV_TF_1: Terraform Registry module pinned by semver, as above.
   source  = "Azure/naming/azurerm"
   version = "~> 0.4"
   suffix  = [var.project_name, var.environment, "zap"]
+}
+
+module "naming_scanner_active" {
+  # checkov:skip=CKV_TF_1: Terraform Registry module pinned by semver, as above.
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.4"
+  suffix  = [var.project_name, var.environment, "zapfull"]
 }
 
 resource "azurerm_resource_group" "this" {

@@ -2,6 +2,8 @@
 
 import shlex
 
+import pytest
+
 from sectest import scan
 
 
@@ -37,33 +39,59 @@ def test_skips_apps_without_fqdn_or_stopped():
     assert {s["name"]: s["reason"] for s in skipped} == {"a": "no ingress FQDN", "b": "app is stopped"}
 
 
-def test_openapi_tag_selects_api_scan():
-    targets, _ = scan.select_targets([row(tags={"security-scan-openapi": "/openapi.json"})])
-    assert targets[0].mode == "api"
-    cmd = scan.build_command(targets[0], spider_minutes=5)
-    assert cmd[0] == "zap-api-scan.py"
-    assert "https://app.example.azurecontainerapps.io/openapi.json" in cmd
-    assert cmd[cmd.index("-f") + 1] == "openapi"
+def test_passive_profile_never_attacks():
+    rows = [
+        row(name="plain"),
+        row(name="api", tags={"security-scan-openapi": "/openapi.json"}),
+        # A leftover opt-in tag from the old model must not make the nightly run active.
+        row(name="legacy", tags={"security-scan-mode": "full"}),
+    ]
+    targets, skipped = scan.select_targets(rows, "passive")
+    assert skipped == []
+    assert {t.name: t.mode for t in targets} == {"plain": "baseline", "api": "api", "legacy": "baseline"}
+    for t in targets:
+        cmd = scan.build_command(t, spider_minutes=5)
+        assert cmd[0] != "zap-full-scan.py"
+        # zap-api-scan.py attacks by default; -S is what keeps it passive.
+        assert cmd[0] != "zap-api-scan.py" or "-S" in cmd
+
+
+def test_active_profile_is_the_default_for_every_app():
+    targets, _ = scan.select_targets(
+        [row(), row(name="api", tags={"security-scan-openapi": "/o.json"})], "active"
+    )
+    assert [t.mode for t in targets] == ["full", "api-full"]
+    full, api = (scan.build_command(t, spider_minutes=3) for t in targets)
+    assert full[:5] == ["zap-full-scan.py", "-t", "https://app.example.azurecontainerapps.io", "-m", "3"]
+    assert api[0] == "zap-api-scan.py"
+    assert "https://app.example.azurecontainerapps.io/o.json" in api
+    assert "-S" not in api
+
+
+def test_passive_tag_opts_out_of_active_only():
+    tagged = row(tags={"Security-Scan-Mode": "Passive"})
+    active, skipped = scan.select_targets([tagged], "active")
+    assert active == []
+    assert skipped[0]["reason"] == "opted out of active scans via tag"
+    passive, _ = scan.select_targets([tagged], "passive")
+    assert [t.mode for t in passive] == ["baseline"]
+
+
+def test_opt_out_of_everything_applies_to_both_profiles():
+    for profile in scan.PROFILES:
+        targets, _ = scan.select_targets([row(tags={"security-scan": "false"})], profile)
+        assert targets == []
+
+
+def test_unknown_profile_is_rejected():
+    with pytest.raises(ValueError):
+        scan.select_targets([row()], "aggressive")
 
 
 def test_openapi_tag_must_be_a_path():
     targets, skipped = scan.select_targets([row(tags={"security-scan-openapi": "https://evil.example/spec"})])
     assert targets == []
     assert "must be a path" in skipped[0]["reason"]
-
-
-def test_full_scan_is_opt_in_and_wins_over_openapi():
-    targets, _ = scan.select_targets(
-        [row(tags={"security-scan-mode": "full", "security-scan-openapi": "/openapi.json"})]
-    )
-    assert targets[0].mode == "full"
-    assert scan.build_command(targets[0], spider_minutes=3)[:5] == [
-        "zap-full-scan.py",
-        "-t",
-        "https://app.example.azurecontainerapps.io",
-        "-m",
-        "3",
-    ]
 
 
 def test_baseline_command_writes_all_reports():
@@ -93,8 +121,13 @@ def test_exceeds_threshold():
 
 
 def test_every_scan_sends_the_identifying_user_agent():
-    for tags in ({}, {"security-scan-openapi": "/openapi.json"}, {"security-scan-mode": "full"}):
-        target = scan.select_targets([row(tags=tags)])[0][0]
+    for profile, tags in (
+        ("passive", {}),
+        ("passive", {"security-scan-openapi": "/openapi.json"}),
+        ("active", {}),
+        ("active", {"security-scan-openapi": "/openapi.json"}),
+    ):
+        target = scan.select_targets([row(tags=tags)], profile)[0][0]
         cmd = scan.build_command(target, spider_minutes=5)
         # ZAP shlex-splits -z itself, so the quoted UA must survive as one value.
         assert shlex.split(cmd[cmd.index("-z") + 1]) == [

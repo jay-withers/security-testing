@@ -3,9 +3,16 @@ output "resource_group_name" {
   value       = azurerm_resource_group.this.name
 }
 
-output "scanner_job_name" {
-  description = "Name of the scanner job, for `make deploy` and for starting a run by hand with `make scan`."
-  value       = azurerm_container_app_job.scanner.name
+# Two outputs rather than one map, so the Makefile can read either with
+# `output -raw scanner_job_name_$(PROFILE)` and no JSON parsing.
+output "scanner_job_name_passive" {
+  description = "Name of the nightly passive scanner job, for `make deploy` and `make scan`."
+  value       = azurerm_container_app_job.scanner["passive"].name
+}
+
+output "scanner_job_name_active" {
+  description = "Name of the weekly active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`."
+  value       = azurerm_container_app_job.scanner["active"].name
 }
 
 output "identity_client_id" {

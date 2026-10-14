@@ -10,6 +10,10 @@ IMAGE_TAG ?= $(shell git rev-parse --short HEAD)
 # `file` means the ?= default fired rather than the caller passing one.
 IMAGE_TAG_EXPLICIT := $(filter-out file,$(origin IMAGE_TAG))
 
+# Which scanner job `scan` and `logs` act on: passive (nightly, every app,
+# nothing attacked) or active (weekly, sends attack payloads).
+PROFILE ?= passive
+
 .DEFAULT_GOAL := help
 
 .PHONY: help install lint test build push deploy scan logs reports init fmt validate plan apply
@@ -44,25 +48,30 @@ push: ## Push the image to ghcr.io (needs write:packages)
 
 # A bare `make deploy` is a hard error: the default tag is the local commit,
 # which may never have been pushed to ghcr.io at all.
-deploy: ## Roll an image tag onto the scanner job (IMAGE_TAG required)
+# Both jobs, always together: they run the same image, and a deploy that moved
+# one would leave the passive and active scans running different scanner code.
+deploy: ## Roll an image tag onto both scanner jobs (IMAGE_TAG required)
 	@if [ -z "$(IMAGE_TAG_EXPLICIT)" ]; then \
 		echo "error: pass a tag explicitly, e.g. make deploy IMAGE_TAG=v0.1.0" >&2; exit 1; fi
 	@case "$(IMAGE_TAG)" in latest|main|unset) \
 		echo "error: $(IMAGE_TAG) is a moving tag. Container Apps only creates a revision when the template changes, so re-pushing one deploys nothing and reports success." >&2; exit 1;; esac
 	$(MAKE) --no-print-directory init
-	az containerapp job update \
-		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name)" \
-		--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)" \
-		--image $(IMAGE_REGISTRY)/sectest:$(IMAGE_TAG)
+	@for profile in passive active; do \
+		echo "==> $$profile"; \
+		az containerapp job update \
+			--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name_$$profile)" \
+			--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)" \
+			--image $(IMAGE_REGISTRY)/sectest:$(IMAGE_TAG) || exit 1; \
+	done
 
-scan: init ## Start a scan now, outside the schedule
+scan: init ## Start a scan now (PROFILE=passive by default; PROFILE=active attacks)
 	az containerapp job start \
-		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name)" \
+		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name_$(PROFILE))" \
 		--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)"
 
-logs: init ## Show the most recent scan's log lines
+logs: init ## Show the latest run's log lines (PROFILE=passive by default)
 	az containerapp job logs show \
-		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name)" \
+		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name_$(PROFILE))" \
 		--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)" \
 		--container scanner
 

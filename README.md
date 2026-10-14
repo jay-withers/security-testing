@@ -2,10 +2,19 @@
 
 A scheduled DAST scanner for the shared Azure Container Apps platform
 ([jay-withers/azure-container-apps](https://github.com/jay-withers/azure-container-apps)).
-Every night a Container Apps **job** finds every container app with **external
-ingress** in the target subscriptions, runs an [OWASP ZAP](https://www.zaproxy.org/)
-scan against each one from the public internet, and writes the reports to
-Blob Storage.
+Two Container Apps **jobs** find every container app with **external
+ingress** in the target subscriptions, run an [OWASP ZAP](https://www.zaproxy.org/)
+scan against each one from the public internet, and write the reports to
+Blob Storage:
+
+- **Passive**, nightly: every app. Browses like a normal visitor and inspects
+  the responses (missing security headers, insecure cookies, leaked versions).
+  It never sends anything a browser wouldn't, so it can't change or break
+  anything.
+- **Active**, weekly: every app that hasn't opted out. Fills every form field,
+  parameter and API input with attack strings (SQL injection, XSS, path
+  traversal, …) to find what is actually exploitable. It really submits them,
+  so anything an app saves fills with junk records.
 
 It is a tenant of the platform, the same way `finances` is. The shared
 Container Apps environment (`cae-platform-dev`) and Log Analytics workspace
@@ -13,26 +22,26 @@ Container Apps environment (`cae-platform-dev`) and Log Analytics workspace
 creates or changes them.
 
 ```text
-caj-sectest-dev-zap  (cron, 02:00 UTC)        identity: Reader on target subscriptions
-  1. Resource Graph: container apps with external ingress
-  2. per app: zap-baseline.py | zap-api-scan.py | zap-full-scan.py
-  3. reports  ──▶ st…/reports/<date>/<time>/<sub>/<rg>/<app>/report.{html,json,md}
-                  st…/reports/<date>/<time>/summary.json
+caj-sectest-dev-zap      passive  daily   02:00 UTC   zap-baseline.py | zap-api-scan.py -S
+caj-sectest-dev-zapfull  active   Sunday  04:00 UTC   zap-full-scan.py | zap-api-scan.py
+  1. Resource Graph: container apps with external ingress (identity: Reader)
+  2. one ZAP scan per app, per the profile and the app's tags
+  3. reports  ──▶ st…/reports/<date>/<time>-<profile>/<sub>/<rg>/<app>/report.{html,json,md}
+                  st…/reports/<date>/<time>-<profile>/summary.json
   4. stdout   ──▶ shared environment ──▶ log-platform-dev  ──▶ findings alert
 ```
 
 ## Controlling what gets scanned
 
-Every app with external ingress is scanned with the **passive baseline** scan
-by default. That scan spiders for a few minutes and only reads the responses,
-so it is safe against production. Tags on the *target* container app change
-that:
+Both scans are **opt-out**: every app with external ingress gets the nightly
+passive scan *and* the weekly active scan unless it's tagged otherwise. Tags
+go on the *target* container app:
 
 | Tag | Effect |
 | --- | --- |
-| `security-scan = "false"` | Skip this app. |
-| `security-scan-openapi = "/openapi.json"` | Run an API scan against that spec path instead of spidering. The value must be a path on the app's own FQDN. |
-| `security-scan-mode = "full"` | Run an **active** scan, which sends attack payloads. Opt-in per app only. Expect it to write junk data into anything the app persists, and to generate far more traffic (see below). |
+| `security-scan = "false"` | Skip this app in both scans. |
+| `security-scan-mode = "passive"` | Opt out of the weekly **active** scan only. The app still gets the nightly passive scan. Use this for anything whose stored data you can't have junk written into, or that can't take the traffic. |
+| `security-scan-openapi = "/openapi.json"` | Scan the endpoints in that spec instead of spidering, in whichever profile is running. The passive run still never attacks (it passes ZAP's safe mode, `-S`). The value must be a path on the app's own FQDN. |
 
 Apps that are stopped or have no ingress FQDN are skipped. Each skip is logged
 with its reason.
@@ -55,17 +64,20 @@ is broken" to the platform. A finding is not that.
 
 ## Impact on the shared platform
 
-Read this before adding targets or enabling full scans.
+Read this before the first active run, because active scanning is on for
+every app by default.
 
 - **HTTP log volume.** Every request ZAP makes to a target app becomes a row
   in `ContainerAppHTTPLogs`, and those rows count against the shared
   workspace's 0.15 GB/day cap. Hitting that cap blinds every tenant's alerts
-  for the rest of the day. A baseline scan is a few hundred requests per app,
-  which is negligible. A full scan can be tens of thousands, so enable it
-  sparingly and watch the platform's log-quota alert the first time.
+  for the rest of the day. A passive scan is a few hundred requests per app,
+  which is negligible. An active scan can be tens of thousands per app, and
+  every app gets one each Sunday. Watch the platform's log-quota alert on the
+  first Sunday, and tag apps `security-scan-mode = "passive"` if it gets close.
 - **The platform's app-error alert.** That rule fires when the same
-  (app, path, 4xx/5xx) repeats 3 or more times in 15 minutes. Baseline scans
-  should stay under that. Full scans will not. Every scan request carries the
+  (app, path, 4xx/5xx) repeats 3 or more times in 15 minutes. Passive scans
+  should stay under that. Active scans will not, so expect it to fire for
+  every app each Sunday until it's changed. Every scan request carries the
   User-Agent `sectest-dast-scanner (…)` (`USER_AGENT` in
   `src/sectest/scan.py`), so the platform rule can exclude scanner traffic
   rather than fire on it. That change belongs in azure-container-apps, not
@@ -90,8 +102,11 @@ Only scan apps you own, and follow Microsoft's
    identity is granted Reader there. The job is created on a **placeholder
    image** that does nothing.
 4. Let `cd-tag` publish an image (or `make build push`), then
-   `make deploy IMAGE_TAG=vX.Y.Z` to put the scanner on the job.
-5. Run `make scan` to run once now, then `make logs` and `make reports`.
+   `make deploy IMAGE_TAG=vX.Y.Z` to put the scanner on both jobs.
+5. Tag anything that shouldn't be attacked `security-scan-mode = "passive"`
+   **before the first Sunday**.
+6. Run `make scan` for a passive run now, then `make logs` and
+   `make reports`.
 
 ## Commands
 
@@ -100,21 +115,22 @@ make install    # pre-commit hooks + uv venv
 make test       # pytest — no Azure, no ZAP
 make lint       # every pre-commit hook
 make build      # docker build for linux/amd64
-make deploy IMAGE_TAG=v0.2.0   # roll a released image onto the job
-make scan       # start a run now, outside the schedule
-make logs       # the latest run's log lines
+make deploy IMAGE_TAG=v0.2.0   # roll a released image onto both jobs
+make scan       # start a passive run now, outside the schedule
+make scan PROFILE=active       # start an active (attack) run now
+make logs       # the latest passive run's log lines (PROFILE=active for the other)
 make reports    # the latest run summaries in Blob Storage
 make plan / make apply         # ENV=dev by default
 ```
 
-Terraform never sets the real image. It creates the job on a placeholder
+Terraform never sets the real image. It creates both jobs on a placeholder
 (`mcr.microsoft.com/k8se/quickstart-jobs`), the image is under
 `ignore_changes`, and `make deploy` is the only thing that sets the scanner
-image. Everything else in the job, including the target subscriptions, the
-threshold and the schedule, is still Terraform's.
+image, on both jobs at once. Everything else in the jobs, including the target
+subscriptions, the threshold and the schedules, is still Terraform's.
 
-**Run `make deploy` again after any apply that recreates the job.** Changing
-`scan_cron_expression` replaces it, for example. The new job comes back on
+**Run `make deploy` again after any apply that recreates a job.** Changing
+either cron expression replaces that job, for example. The new job comes back on
 the placeholder, which exits 0, so no alert fires: runs "succeed" and nothing
 is scanned. If `make reports` shows no new runs, check this first.
 

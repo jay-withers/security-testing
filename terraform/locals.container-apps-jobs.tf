@@ -9,8 +9,8 @@ locals {
   # quickstart job image prints a line and exits 0.
   #
   # **Run `make deploy` after any apply that creates or replaces the job** — the
-  # first apply, and any change to a ForceNew argument such as
-  # scan_cron_expression. A replaced job comes back on this placeholder, and
+  # first apply, and any change to a ForceNew argument such as either cron
+  # expression. A replaced job comes back on this placeholder, and
   # because it exits 0 nothing alerts: runs "succeed" and no scan happens.
   placeholder_image = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
 
@@ -25,6 +25,28 @@ locals {
   # findings alert, so another tenant's logs can never match it.
   log_source = "sectest"
 
+  # One job per profile, same image. Passive is every app, nightly, and never
+  # attacks anything; active is weekly and opt-out (security-scan-mode =
+  # "passive"), and sends real attack payloads — see src/sectest/scan.py.
+  #
+  # Active scans take far longer per app, hence the longer timeouts: the
+  # per-target one stops a single slow app eating the whole run.
+  scan_profiles = {
+    passive = {
+      job_name       = module.naming_scanner.container_app_job.name
+      cron           = var.passive_scan_cron_expression
+      timeout        = var.passive_scan_timeout_seconds
+      target_timeout = 1800
+    }
+    active = {
+      job_name       = module.naming_scanner_active.container_app_job.name
+      cron           = var.active_scan_cron_expression
+      timeout        = var.active_scan_timeout_seconds
+      target_timeout = 3600
+    }
+  }
+
+  # Shared by both jobs; each adds its SCAN_PROFILE and SCAN_TARGET_TIMEOUT.
   scanner_env = {
     AZURE_CLIENT_ID         = azurerm_user_assigned_identity.this.client_id
     TARGET_SUBSCRIPTION_IDS = join(",", local.target_subscription_ids)
