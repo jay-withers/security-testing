@@ -37,13 +37,15 @@ def test_skips_apps_without_fqdn_or_stopped():
     assert {s["name"]: s["reason"] for s in skipped} == {"a": "no ingress FQDN", "b": "app is stopped"}
 
 
-def test_openapi_tag_selects_api_scan():
+def test_openapi_tag_alone_is_a_passive_api_scan():
     targets, _ = scan.select_targets([row(tags={"security-scan-openapi": "/openapi.json"})])
     assert targets[0].mode == "api"
     cmd = scan.build_command(targets[0], spider_minutes=5)
     assert cmd[0] == "zap-api-scan.py"
     assert "https://app.example.azurecontainerapps.io/openapi.json" in cmd
     assert cmd[cmd.index("-f") + 1] == "openapi"
+    # zap-api-scan.py is active by default; -S is what keeps this passive.
+    assert "-S" in cmd
 
 
 def test_openapi_tag_must_be_a_path():
@@ -52,10 +54,25 @@ def test_openapi_tag_must_be_a_path():
     assert "must be a path" in skipped[0]["reason"]
 
 
-def test_full_scan_is_opt_in_and_wins_over_openapi():
+def test_openapi_plus_full_is_an_active_api_scan():
     targets, _ = scan.select_targets(
         [row(tags={"security-scan-mode": "full", "security-scan-openapi": "/openapi.json"})]
     )
+    assert targets[0].mode == "api-full"
+    cmd = scan.build_command(targets[0], spider_minutes=3)
+    assert cmd[0] == "zap-api-scan.py"
+    assert "-S" not in cmd
+
+
+def test_only_full_mode_is_ever_active():
+    for tags in ({}, {"security-scan-openapi": "/openapi.json"}, {"security-scan-mode": "FULLish"}):
+        cmd = scan.build_command(scan.select_targets([row(tags=tags)])[0][0], spider_minutes=5)
+        assert cmd[0] != "zap-full-scan.py"
+        assert cmd[0] != "zap-api-scan.py" or "-S" in cmd
+
+
+def test_full_tag_without_openapi_is_a_full_scan():
+    targets, _ = scan.select_targets([row(tags={"security-scan-mode": "full"})])
     assert targets[0].mode == "full"
     assert scan.build_command(targets[0], spider_minutes=3)[:5] == [
         "zap-full-scan.py",

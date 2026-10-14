@@ -6,8 +6,13 @@ OWASP ZAP scan against each one, and uploads the reports to Blob Storage.
 Per-app behaviour is controlled by tags on the target Container App:
 
   security-scan = "false"               skip this app entirely
-  security-scan-openapi = "/openapi.json"  API scan against this spec path
+  security-scan-openapi = "/openapi.json"  scan the API in this spec instead of spidering
   security-scan-mode = "full"           active (attack) scan — opt-in only
+
+**Only `security-scan-mode = "full"` ever sends attack payloads.** The two tags
+combine: an openapi tag alone is a *passive* API scan (zap-api-scan.py -S),
+and openapi + full is an active API scan. zap-api-scan.py is active by
+default, which is why -S is passed whenever full was not asked for.
 
 Configuration comes from environment variables (set by the Terraform module):
 
@@ -60,6 +65,14 @@ TAG_ENABLED = "security-scan"
 TAG_OPENAPI = "security-scan-openapi"
 TAG_MODE = "security-scan-mode"
 
+# (has openapi tag, full requested) -> mode. Only the *full modes are active.
+SCAN_MODES = {
+    (False, False): "baseline",
+    (False, True): "full",
+    (True, False): "api",
+    (True, True): "api-full",
+}
+
 # ZAP traditional-json riskcode values.
 RISK_LEVELS = {"Informational": 0, "Low": 1, "Medium": 2, "High": 3}
 RISK_NAMES = {v: k for k, v in RISK_LEVELS.items()}
@@ -72,7 +85,7 @@ class Target:
     resource_group: str
     subscription_id: str
     fqdn: str
-    mode: str  # baseline | api | full
+    mode: str  # baseline | full | api | api-full — only *full modes are active
     openapi_path: str | None = None
 
     @property
@@ -126,13 +139,8 @@ def select_targets(rows: list[dict]) -> tuple[list[Target], list[dict]]:
             skipped.append({"id": row.get("id"), "name": name, "reason": reason})
             continue
 
-        requested_mode = tags.get(TAG_MODE, "").lower()
-        if requested_mode == "full":
-            mode = "full"
-        elif openapi_path:
-            mode = "api"
-        else:
-            mode = "baseline"
+        active = tags.get(TAG_MODE, "").lower() == "full"
+        mode = SCAN_MODES[(bool(openapi_path), active)]
 
         targets.append(
             Target(
@@ -160,13 +168,16 @@ def build_command(target: Target, spider_minutes: int) -> list[str]:
     ]
     # -I: don't fail on warnings — severity is judged from the JSON report.
     common = ["-I", "-z", f"-config connection.defaultUserAgent='{USER_AGENT}'", *reports]
-    if target.mode == "api":
+    if target.mode in ("api", "api-full"):
         return [
             "zap-api-scan.py",
             "-t",
             f"{target.url}{target.openapi_path}",
             "-f",
             "openapi",
+            # -S: safe mode, skipping the active scan. zap-api-scan.py attacks
+            # by default, so passive has to be asked for explicitly here.
+            *(["-S"] if target.mode == "api" else []),
             *common,
         ]
     script = "zap-full-scan.py" if target.mode == "full" else "zap-baseline.py"

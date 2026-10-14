@@ -31,8 +31,8 @@ that:
 | Tag | Effect |
 | --- | --- |
 | `security-scan = "false"` | Skip this app. |
-| `security-scan-openapi = "/openapi.json"` | Run an API scan against that spec path instead of spidering. The value must be a path on the app's own FQDN. |
-| `security-scan-mode = "full"` | Run an **active** scan, which sends attack payloads. Opt-in per app only. Expect it to write junk data into anything the app persists, and to generate far more traffic (see below). |
+| `security-scan-openapi = "/openapi.json"` | Scan the endpoints in that spec instead of spidering. Still **passive** on its own. The value must be a path on the app's own FQDN. |
+| `security-scan-mode = "full"` | Run an **active** scan, which sends attack payloads. This tag is the only way to get one, and it combines with the openapi tag to actively scan the API. Expect it to write junk data into anything the app persists, and to generate far more traffic (see below). |
 
 Apps that are stopped or have no ingress FQDN are skipped. Each skip is logged
 with its reason.
