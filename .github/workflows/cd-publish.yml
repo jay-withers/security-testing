@@ -1,0 +1,41 @@
+name: cd-publish
+
+# Publishes the image to GHCR for a given tag. Invoked by cd-tag after a version
+# bump, or manually to (re)publish an existing tag after a failed build without
+# minting a new version.
+#
+# Two tags are pushed, both immutable: vX.Y.Z and the short commit SHA. Neither
+# is ever moved — Container Apps only creates a revision when the template
+# changes, so re-pushing a moving tag would deploy nothing and report success.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Git tag to publish (e.g. v1.2.3)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing git tag to publish (e.g. v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # `ref` is the tag, so tag-with-sha records the commit actually built.
+  publish:
+    permissions:
+      contents: read
+      packages: write
+    uses: jay-withers/workflows/.github/workflows/docker.yml@fb1c41960759020f9425e1351bf3cd893143d657 # v1.4.14
+    with:
+      images: |
+        [{"name": "sectest", "context": "."}]
+      ref: ${{ inputs.version }}
+      push: true
+      tags: ${{ inputs.version }}
+      tag-with-sha: true
+      summary-note: Deploy with `make deploy IMAGE_TAG=${{ inputs.version }}`.

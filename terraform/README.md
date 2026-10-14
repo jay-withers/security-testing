@@ -1,4 +1,4 @@
-# Terraform module
+# Terraform — DAST scanner root configuration
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -6,41 +6,67 @@
 | Name | Version |
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6 |
-| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 4.0 |
+| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 5.0 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | >= 3.3.2 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | 4.81.0 |
+| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | 5.9.0 |
 
 ## Modules
 
 | Name | Source | Version |
 | ---- | ------ | ------- |
 | <a name="module_naming"></a> [naming](#module\_naming) | Azure/naming/azurerm | ~> 0.4 |
+| <a name="module_naming_scanner"></a> [naming\_scanner](#module\_naming\_scanner) | Azure/naming/azurerm | ~> 0.4 |
 
 ## Resources
 
 | Name | Type |
 | ---- | ---- |
+| [azurerm_container_app_job.scanner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/container_app_job) | resource |
+| [azurerm_monitor_scheduled_query_rules_alert_v2.findings](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_scheduled_query_rules_alert_v2) | resource |
 | [azurerm_resource_group.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group) | resource |
+| [azurerm_role_assignment.deployer_reports_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.identity_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.identity_reports_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_storage_account.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account) | resource |
+| [azurerm_storage_container.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_container) | resource |
+| [azurerm_storage_management_policy.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_management_policy) | resource |
+| [azurerm_user_assigned_identity.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/user_assigned_identity) | resource |
+| [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
+| [azurerm_container_app_environment.platform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/container_app_environment) | data source |
+| [azurerm_log_analytics_workspace.platform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
+| [azurerm_monitor_action_group.platform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/monitor_action_group) | data source |
+| [azurerm_subscription.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/subscription) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment. Drives environment-specific behaviour (naming, sizing, etc.) as the module grows. | `string` | n/a | yes |
-| <a name="input_location"></a> [location](#input\_location) | Azure region the resource group is created in. | `string` | `"westeurope"` | no |
-| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to all resources created by this module, merged with (and taking precedence over) the module's default tags (`environment`, `managed-by`). | `map(string)` | `{}` | no |
+| <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment. Drives resource naming, and selects which shared platform environment this project deploys onto. | `string` | n/a | yes |
+| <a name="input_platform_action_group_name"></a> [platform\_action\_group\_name](#input\_platform\_action\_group\_name) | Name of the shared action group the findings alert notifies. | `string` | `"mag-platform-dev"` | no |
+| <a name="input_platform_environment_name"></a> [platform\_environment\_name](#input\_platform\_environment\_name) | Name of the shared Container Apps environment the scanner job runs on. | `string` | `"cae-platform-dev"` | no |
+| <a name="input_platform_log_analytics_workspace_name"></a> [platform\_log\_analytics\_workspace\_name](#input\_platform\_log\_analytics\_workspace\_name) | Name of the shared Log Analytics workspace the environment logs to. The findings alert queries it. | `string` | `"log-platform-dev"` | no |
+| <a name="input_platform_resource_group_name"></a> [platform\_resource\_group\_name](#input\_platform\_resource\_group\_name) | Resource group holding the shared Container Apps environment, Log Analytics workspace and action group. | `string` | `"rg-platform-dev"` | no |
+| <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Short name for this project, used by the naming module for every resource. | `string` | `"sectest"` | no |
+| <a name="input_report_reader_object_ids"></a> [report\_reader\_object\_ids](#input\_report\_reader\_object\_ids) | Extra Entra object IDs granted Storage Blob Data Reader on the reports container. Whoever runs `terraform apply` is always included, so this is only for a second person or a second machine. | `list(string)` | `[]` | no |
+| <a name="input_report_retention_days"></a> [report\_retention\_days](#input\_report\_retention\_days) | Days scan reports are kept before the lifecycle policy deletes them. | `number` | `90` | no |
+| <a name="input_scan_cron_expression"></a> [scan\_cron\_expression](#input\_scan\_cron\_expression) | When the scan runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST, when scan traffic is least likely to land on top of real use. | `string` | `"0 2 * * *"` | no |
+| <a name="input_scan_fail_on"></a> [scan\_fail\_on](#input\_scan\_fail\_on) | Lowest ZAP alert risk that raises the findings alert: `Low`, `Medium` or `High`. Findings never fail the job itself — see main.alerts.tf. | `string` | `"High"` | no |
+| <a name="input_scan_timeout_seconds"></a> [scan\_timeout\_seconds](#input\_scan\_timeout\_seconds) | Upper bound on one whole scan run, across every target. | `number` | `7200` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags merged over the defaults in locals.tf. | `map(string)` | `{}` | no |
+| <a name="input_target_subscription_ids"></a> [target\_subscription\_ids](#input\_target\_subscription\_ids) | Subscription IDs to discover container apps in. The scanner's identity gets Reader on each. Empty means the subscription this is applied into. | `list(string)` | `[]` | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| <a name="output_environment"></a> [environment](#output\_environment) | The deployment environment passed to the module. |
-| <a name="output_resource_group_id"></a> [resource\_group\_id](#output\_resource\_group\_id) | ID of the created resource group. |
-| <a name="output_resource_group_location"></a> [resource\_group\_location](#output\_resource\_group\_location) | Location of the created resource group. |
-| <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | Name of the created resource group. |
+| <a name="output_identity_client_id"></a> [identity\_client\_id](#output\_identity\_client\_id) | Client ID of the scanner's identity, which the job receives as `AZURE_CLIENT_ID`. |
+| <a name="output_reports_container_url"></a> [reports\_container\_url](#output\_reports\_container\_url) | Blob container scan reports are written to, for `make reports`. |
+| <a name="output_reports_storage_account_name"></a> [reports\_storage\_account\_name](#output\_reports\_storage\_account\_name) | Storage account holding the reports, for `az storage blob download --auth-mode login`. |
+| <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | This project's resource group. |
+| <a name="output_scanner_job_name"></a> [scanner\_job\_name](#output\_scanner\_job\_name) | Name of the scanner job, for `make deploy` and for starting a run by hand with `make scan`. |
 <!-- END_TF_DOCS -->

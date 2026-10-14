@@ -1,0 +1,79 @@
+# The scanner.
+#
+# Cron expressions are evaluated in **UTC**, so the wall-clock time shifts by an
+# hour with British Summer Time. `schedule_trigger_config` is ForceNew: changing
+# the schedule replaces the job rather than updating it.
+resource "azurerm_container_app_job" "scanner" {
+  name                         = module.naming_scanner.container_app_job.name
+  container_app_environment_id = data.azurerm_container_app_environment.platform.id
+  resource_group_name          = azurerm_resource_group.this.name
+  # Unlike a container app, a job **requires** location and the provider rejects
+  # it being omitted. Same region as the environment either way.
+  location = azurerm_resource_group.this.location
+
+  # Bounds the whole run across every target; scan.py also bounds each target
+  # on its own, so one hung scan cannot eat the others' time.
+  replica_timeout_in_seconds = var.scan_timeout_seconds
+  # No retry: a retry would scan every target a second time, doubling the
+  # traffic (and the shared workspace's HTTP log ingestion) for a run whose
+  # failure is almost always the same on the second attempt.
+  replica_retry_limit = 0
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.this.id]
+  }
+
+  schedule_trigger_config {
+    cron_expression          = var.scan_cron_expression
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  template {
+    container {
+      name = "scanner"
+      # Placeholder; see locals.container-apps-jobs.tf.
+      image = local.placeholder_image
+      # ZAP runs a JVM; 1 vCPU / 2 GiB is the smallest combination it runs
+      # comfortably in. A job only bills while it runs, so this costs minutes a
+      # night, not a standing replica.
+      cpu    = local.container_cpu
+      memory = local.container_memory
+
+      # No `command` and no `args`: the image's ENTRYPOINT is the single source
+      # of truth for what runs. See finances' main.container-apps.tf for the
+      # market-agent outage a stale `command` caused.
+
+      dynamic "env" {
+        for_each = local.scanner_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+    }
+  }
+
+  tags = local.tags
+
+  # `make deploy` (az cli) owns the image entirely — Terraform only ever sets
+  # the placeholder, and ignores whatever a deploy puts there afterwards.
+  #
+  # Only the image is ignored, unlike finances, which ignores the whole env map
+  # because it carries IMAGE_TAG there. Nothing in scanner_env changes per
+  # deploy, so Terraform keeps owning it — changing the target subscriptions or
+  # the fail threshold lands on the next apply.
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
+  }
+
+  # Both grants must exist before the first scheduled run, or discovery or the
+  # report upload fails with a 403.
+  depends_on = [
+    azurerm_role_assignment.identity_reader,
+    azurerm_role_assignment.identity_reports_contributor,
+  ]
+}

@@ -1,30 +1,24 @@
-# outputs.tf — values exported by this module.
-
-output "environment" {
-  description = "The deployment environment passed to the module."
-  value       = var.environment
-}
-
-output "resource_group_id" {
-  description = "ID of the created resource group."
-  value       = azurerm_resource_group.this.id
-}
-
 output "resource_group_name" {
-  description = "Name of the created resource group."
+  description = "This project's resource group."
   value       = azurerm_resource_group.this.name
 }
 
-output "resource_group_location" {
-  description = "Location of the created resource group."
-  value       = azurerm_resource_group.this.location
+output "scanner_job_name" {
+  description = "Name of the scanner job, for `make deploy` and for starting a run by hand with `make scan`."
+  value       = azurerm_container_app_job.scanner.name
 }
 
-# Add further module outputs below.
-#
-# Example:
-#
-# output "id" {
-#   description = "Identifier of the created resource."
-#   value       = resource_type.this.id
-# }
+output "identity_client_id" {
+  description = "Client ID of the scanner's identity, which the job receives as `AZURE_CLIENT_ID`."
+  value       = azurerm_user_assigned_identity.this.client_id
+}
+
+output "reports_container_url" {
+  description = "Blob container scan reports are written to, for `make reports`."
+  value       = "${azurerm_storage_account.reports.primary_blob_endpoint}${azurerm_storage_container.reports.name}"
+}
+
+output "reports_storage_account_name" {
+  description = "Storage account holding the reports, for `az storage blob download --auth-mode login`."
+  value       = azurerm_storage_account.reports.name
+}
