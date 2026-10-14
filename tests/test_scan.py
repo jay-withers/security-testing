@@ -130,10 +130,9 @@ def test_every_scan_sends_the_identifying_user_agent():
         target = scan.select_targets([row(tags=tags)], profile)[0][0]
         cmd = scan.build_command(target, spider_minutes=5)
         # ZAP shlex-splits -z itself, so the quoted UA must survive as one value.
-        assert shlex.split(cmd[cmd.index("-z") + 1]) == [
-            "-config",
-            f"connection.defaultUserAgent={scan.USER_AGENT}",
-        ]
+        options = shlex.split(cmd[cmd.index("-z") + 1])
+        assert f"connection.defaultUserAgent={scan.USER_AGENT}" in options
+        assert f"connection.timeoutInSecs={scan.ZAP_READ_TIMEOUT_SECONDS}" in options
 
 
 def test_log_lines_carry_the_source(capsys):
@@ -141,3 +140,54 @@ def test_log_lines_carry_the_source(capsys):
     line = capsys.readouterr().out.strip()
     assert '"source": "sectest"' in line
     assert '"over_threshold": true' in line
+
+
+class FakeClock:
+    """Deterministic time for warm_up: sleep() advances now()."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def test_warm_up_returns_as_soon_as_the_app_answers():
+    clock = FakeClock()
+    assert scan.warm_up("https://a", fetch=lambda u, t: 200, sleep=clock.sleep, clock=clock) == (
+        True,
+        "HTTP 200",
+    )
+    assert clock.now == 0
+
+
+def test_warm_up_treats_any_app_status_as_awake():
+    # A 401 is the app answering — it is awake, just protected.
+    clock = FakeClock()
+    awake, _ = scan.warm_up("https://a", fetch=lambda u, t: 401, sleep=clock.sleep, clock=clock)
+    assert awake
+
+
+def test_warm_up_retries_through_cold_start():
+    clock = FakeClock()
+    responses = iter([503, 503, 200])
+    awake, detail = scan.warm_up(
+        "https://a", fetch=lambda u, t: next(responses), sleep=clock.sleep, clock=clock
+    )
+    assert (awake, detail) == (True, "HTTP 200")
+    assert clock.now == 2 * scan.WARM_UP_RETRY_SECONDS
+
+
+def test_warm_up_gives_up_at_the_deadline():
+    clock = FakeClock()
+
+    def timing_out(url, timeout):
+        raise TimeoutError("read timed out")
+
+    awake, detail = scan.warm_up("https://a", fetch=timing_out, sleep=clock.sleep, clock=clock, deadline=60)
+    assert not awake
+    assert "TimeoutError" in detail
+    assert clock.now < 60
