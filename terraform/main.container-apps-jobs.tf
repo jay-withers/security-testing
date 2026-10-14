@@ -1,10 +1,14 @@
-# The scanner.
+# The scanners: one job per profile in local.scan_profiles — a nightly passive
+# scan of every app, and a weekly active (attack) scan of every app that has not
+# opted out.
 #
 # Cron expressions are evaluated in **UTC**, so the wall-clock time shifts by an
 # hour with British Summer Time. `schedule_trigger_config` is ForceNew: changing
-# the schedule replaces the job rather than updating it.
+# a schedule replaces that job rather than updating it.
 resource "azurerm_container_app_job" "scanner" {
-  name                         = module.naming_scanner.container_app_job.name
+  for_each = local.scan_profiles
+
+  name                         = each.value.job_name
   container_app_environment_id = data.azurerm_container_app_environment.platform.id
   resource_group_name          = azurerm_resource_group.this.name
   # Unlike a container app, a job **requires** location and the provider rejects
@@ -13,7 +17,7 @@ resource "azurerm_container_app_job" "scanner" {
 
   # Bounds the whole run across every target; scan.py also bounds each target
   # on its own, so one hung scan cannot eat the others' time.
-  replica_timeout_in_seconds = var.scan_timeout_seconds
+  replica_timeout_in_seconds = each.value.timeout
   # No retry: a retry would scan every target a second time, doubling the
   # traffic (and the shared workspace's HTTP log ingestion) for a run whose
   # failure is almost always the same on the second attempt.
@@ -25,7 +29,7 @@ resource "azurerm_container_app_job" "scanner" {
   }
 
   schedule_trigger_config {
-    cron_expression          = var.scan_cron_expression
+    cron_expression          = each.value.cron
     parallelism              = 1
     replica_completion_count = 1
   }
@@ -46,7 +50,10 @@ resource "azurerm_container_app_job" "scanner" {
       # market-agent outage a stale `command` caused.
 
       dynamic "env" {
-        for_each = local.scanner_env
+        for_each = merge(local.scanner_env, {
+          SCAN_PROFILE        = each.key
+          SCAN_TARGET_TIMEOUT = tostring(each.value.target_timeout)
+        })
         content {
           name  = env.key
           value = env.value
@@ -76,4 +83,13 @@ resource "azurerm_container_app_job" "scanner" {
     azurerm_role_assignment.identity_reader,
     azurerm_role_assignment.identity_reports_contributor,
   ]
+}
+
+# The single job that existed before the active profile was added is the passive
+# one, under the same name — so this re-addresses it in state rather than
+# destroying and recreating it (which would also put it back on the placeholder
+# image).
+moved {
+  from = azurerm_container_app_job.scanner
+  to   = azurerm_container_app_job.scanner["passive"]
 }

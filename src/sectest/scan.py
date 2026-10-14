@@ -3,16 +3,20 @@
 Discovers Container Apps with external ingress via Azure Resource Graph, runs an
 OWASP ZAP scan against each one, and uploads the reports to Blob Storage.
 
-Per-app behaviour is controlled by tags on the target Container App:
+Two profiles run the same image, selected by SCAN_PROFILE:
 
-  security-scan = "false"               skip this app entirely
+  passive   nightly. Every app; spider + passive rules only, nothing is attacked.
+  active    weekly. Every app that has not opted out; sends attack payloads.
+
+Active scanning is **opt-out**. Per-app behaviour is controlled by tags on the
+target Container App:
+
+  security-scan = "false"                  skip this app in both profiles
+  security-scan-mode = "passive"           opt out of the active profile only
   security-scan-openapi = "/openapi.json"  scan the API in this spec instead of spidering
-  security-scan-mode = "full"           active (attack) scan — opt-in only
 
-**Only `security-scan-mode = "full"` ever sends attack payloads.** The two tags
-combine: an openapi tag alone is a *passive* API scan (zap-api-scan.py -S),
-and openapi + full is an active API scan. zap-api-scan.py is active by
-default, which is why -S is passed whenever full was not asked for.
+zap-api-scan.py is active by default, so the passive profile passes it -S
+(safe mode) — an openapi tag never turns a passive run into an attack.
 
 Configuration comes from environment variables (set by the Terraform module):
 
@@ -21,6 +25,7 @@ Configuration comes from environment variables (set by the Terraform module):
   SCAN_FAIL_ON             lowest risk flagged as over_threshold: Low|Medium|High (default High)
   SCAN_SPIDER_MINUTES      spider time cap per target (default 5)
   SCAN_TARGET_TIMEOUT      hard timeout per target in seconds (default 1800)
+  SCAN_PROFILE             passive | active (default passive — the safe one)
   ENVIRONMENT              recorded in the run summary
   LOG_SOURCE               stamped on every log line; the findings alert filters on it
   AZURE_CLIENT_ID          user-assigned managed identity (read by DefaultAzureCredential)
@@ -65,12 +70,14 @@ TAG_ENABLED = "security-scan"
 TAG_OPENAPI = "security-scan-openapi"
 TAG_MODE = "security-scan-mode"
 
-# (has openapi tag, full requested) -> mode. Only the *full modes are active.
+PROFILES = ("passive", "active")
+
+# (has openapi tag, profile) -> mode. Only the *full modes are active.
 SCAN_MODES = {
-    (False, False): "baseline",
-    (False, True): "full",
-    (True, False): "api",
-    (True, True): "api-full",
+    (False, "passive"): "baseline",
+    (False, "active"): "full",
+    (True, "passive"): "api",
+    (True, "active"): "api-full",
 }
 
 # ZAP traditional-json riskcode values.
@@ -112,11 +119,13 @@ def log(event: str, **fields) -> None:
     print(json.dumps({"source": LOG_SOURCE, "event": event, **fields}, default=str), flush=True)
 
 
-def select_targets(rows: list[dict]) -> tuple[list[Target], list[dict]]:
-    """Turn Resource Graph rows into scan targets, applying the tag filters.
+def select_targets(rows: list[dict], profile: str = "passive") -> tuple[list[Target], list[dict]]:
+    """Turn Resource Graph rows into scan targets for a profile, applying the tag filters.
 
     Returns (targets, skipped) where skipped entries explain why.
     """
+    if profile not in PROFILES:
+        raise ValueError(f"profile must be one of {PROFILES}, not {profile!r}")
     targets: list[Target] = []
     skipped: list[dict] = []
     for row in rows:
@@ -135,12 +144,13 @@ def select_targets(rows: list[dict]) -> tuple[list[Target], list[dict]]:
             reason = "app is stopped"
         elif openapi_path is not None and not openapi_path.startswith("/"):
             reason = f"{TAG_OPENAPI} must be a path starting with '/'"
+        elif profile == "active" and tags.get(TAG_MODE, "").lower() == "passive":
+            reason = "opted out of active scans via tag"
         if reason:
             skipped.append({"id": row.get("id"), "name": name, "reason": reason})
             continue
 
-        active = tags.get(TAG_MODE, "").lower() == "full"
-        mode = SCAN_MODES[(bool(openapi_path), active)]
+        mode = SCAN_MODES[(bool(openapi_path), profile)]
 
         targets.append(
             Target(
@@ -273,17 +283,23 @@ def main() -> int:
     if fail_on not in RISK_LEVELS:
         log("config_error", error=f"SCAN_FAIL_ON must be one of {list(RISK_LEVELS)}")
         return 2
+    profile = os.environ.get("SCAN_PROFILE", "passive")
+    if profile not in PROFILES:
+        log("config_error", error=f"SCAN_PROFILE must be one of {list(PROFILES)}")
+        return 2
     spider_minutes = int(os.environ.get("SCAN_SPIDER_MINUTES", "5"))
     timeout = int(os.environ.get("SCAN_TARGET_TIMEOUT", "1800"))
 
     started = dt.datetime.now(dt.UTC)
-    run_prefix = started.strftime("%Y-%m-%d/%H%M%SZ")
+    # The profile is in the path so a passive and an active run on the same
+    # day are told apart at a glance in `make reports`.
+    run_prefix = f"{started:%Y-%m-%d/%H%M%SZ}-{profile}"
 
     credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
-    targets, skipped = select_targets(discover_targets(credential, subscription_ids))
+    targets, skipped = select_targets(discover_targets(credential, subscription_ids), profile)
     for s in skipped:
         log("target_skipped", **s)
-    log("discovery_complete", targets=len(targets), skipped=len(skipped))
+    log("discovery_complete", profile=profile, targets=len(targets), skipped=len(skipped))
 
     container_client = ContainerClient.from_container_url(container_url, credential=credential)
 
@@ -299,6 +315,7 @@ def main() -> int:
             "scan_finished",
             target=target.name,
             url=target.url,
+            profile=profile,
             mode=target.mode,
             status=result.status,
             risks=result.risk_counts,
@@ -311,6 +328,7 @@ def main() -> int:
     errored = [r for r in results if r.status != "completed"]
     summary = {
         "environment": os.environ.get("ENVIRONMENT"),
+        "profile": profile,
         "started": started.isoformat(),
         "finished": dt.datetime.now(dt.UTC).isoformat(),
         "fail_on": fail_on,

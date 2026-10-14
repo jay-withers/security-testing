@@ -39,7 +39,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "findings" {
       | where Log_s has "scan_finished" and Log_s has "${local.log_source}"
       | extend e = parse_json(Log_s)
       | where tostring(e.source) == "${local.log_source}" and tostring(e.event) == "scan_finished" and tobool(e.over_threshold)
-      | project TimeGenerated, Target = tostring(e.target), Url = tostring(e.url), Risks = tostring(e.risks), Report = tostring(e.report)
+      | project TimeGenerated, Target = tostring(e.target), Profile = tostring(e.profile), Url = tostring(e.url), Risks = tostring(e.risks), Report = tostring(e.report)
     KQL
 
     time_aggregation_method = "Count"
