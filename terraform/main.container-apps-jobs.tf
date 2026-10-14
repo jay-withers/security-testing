@@ -13,6 +13,11 @@ resource "azurerm_container_app_job" "scanner" {
   name                         = each.value.job_name
   container_app_environment_id = data.azurerm_container_app_environment.platform.id
   resource_group_name          = azurerm_resource_group.this.name
+  # Stated, not left to default. The shared environment is a workload-profiles
+  # environment, so Azure assigns every job the built-in "Consumption" profile
+  # and reports it back; left unset, every plan shows it being cleared to null
+  # and no apply ever makes that diff go away.
+  workload_profile_name = "Consumption"
   # Unlike a container app, a job **requires** location and the provider rejects
   # it being omitted. Same region as the environment either way.
   location = azurerm_resource_group.this.location
