@@ -11,3 +11,45 @@ jobs:
     permissions:
       contents: write
     uses: jay-withers/workflows/.github/workflows/release.yml@fb1c41960759020f9425e1351bf3cd893143d657 # v1.4.14
+
+  # Whether the image actually needs rebuilding. Diffed against the previous
+  # *release tag*, not this push's own range, so an image change carried by a
+  # push that produced no version is still picked up by the next one that does.
+  #
+  # The paths below must stay in step with ci-container-build.yml's filter and
+  # with the Dockerfile's COPY lines.
+  changes:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      apps: ${{ steps.diff.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: diff
+        run: |
+          prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -z "$prev_tag" ]; then
+            echo "no previous release tag — publishing unconditionally"
+            echo "apps=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$prev_tag"..HEAD -- src/ Dockerfile pyproject.toml uv.lock; then
+            echo "apps=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "apps=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: [tag, changes]
+    if: needs.tag.outputs.tag != '' && needs.changes.outputs.apps == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/cd-publish.yml
+    with:
+      version: ${{ needs.tag.outputs.tag }}

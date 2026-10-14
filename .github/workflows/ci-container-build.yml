@@ -1,0 +1,29 @@
+name: ci-container-build
+
+# Builds the image on a pull request, without pushing. The mechanics live in
+# jay-withers/workflows' docker.yml, which cd-publish also calls, so the only
+# difference between a PR build and a release build is `push`.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - src/**
+      - Dockerfile
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/ci-container-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  # Deliberately **not** a required status check: the path filter above means a
+  # docs-only pull request never runs it, and a required check that never
+  # reports leaves the pull request pending for ever.
+  build:
+    permissions:
+      contents: read
+    uses: jay-withers/workflows/.github/workflows/docker.yml@fb1c41960759020f9425e1351bf3cd893143d657 # v1.4.14
+    with:
+      images: |
+        [{"name": "sectest", "context": "."}]

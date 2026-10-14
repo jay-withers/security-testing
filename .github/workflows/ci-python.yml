@@ -1,0 +1,31 @@
+name: ci-python
+
+# Runs the test suite on a pull request, via the shared workflow so every repo
+# of ours gets the same job and a fix lands once.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  # For the coverage comment. The reusable workflow declares no permissions of
+  # its own precisely so this is reachable.
+  pull-requests: write
+
+jobs:
+  test:
+    # `extras: dev`: pytest sits in [project.optional-dependencies], and `uv run`
+    # installs dependency groups but not extras.
+    #
+    # python-version matches the ZAP image's bookworm python3, so a pass here is
+    # a pass on the interpreter the job runs.
+    #
+    # Deliberately not path filtered: a required check skipped by a path filter
+    # never reports, which blocks a pull request rather than passing it.
+    uses: jay-withers/workflows/.github/workflows/python.yml@fb1c41960759020f9425e1351bf3cd893143d657 # v1.4.14
+    with:
+      working-directory: .
+      python-version: "3.11"
+      extras: dev
+      coverage: sectest
+      coverage-pr-comment: true
