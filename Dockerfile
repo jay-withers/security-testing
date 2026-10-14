@@ -17,7 +17,11 @@ FROM zaproxy/zap-stable:2.17.0@sha256:7aaa659b0d43078febd82e29bad112285c370727e8
 
 FROM base AS builder
 
-USER root
+# The builder needs root to write /app and uv's cache under /root; nothing from
+# this stage runs — only the venv is copied out, and the runtime stage below
+# ends on uid 1000. Numeric so it resolves without /etc/passwd.
+# hadolint ignore=DL3002
+USER 0
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789e050e77ad87865e381d9917da55a168 /uv /uvx /bin/
 
@@ -50,10 +54,10 @@ LABEL org.opencontainers.image.source="https://github.com/jay-withers/security-t
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-USER root
 # The packaged scans refuse to write reports unless /zap/wrk exists — they
-# expect it to be a bind mount, and the image does not create it.
-RUN mkdir -p /zap/wrk && chown 1000:1000 /zap/wrk
+# expect it to be a bind mount, and the image does not create it. No root
+# needed: the base image hands /zap to its `zap` user, which is still current.
+RUN mkdir -p /zap/wrk
 
 COPY --from=builder --chown=1000:1000 /app/.venv /app/.venv
 
