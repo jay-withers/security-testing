@@ -1,10 +1,12 @@
 # The scanners: one job per profile in local.scan_profiles — a nightly passive
-# scan of every app, and a weekly active (attack) scan of every app that has not
-# opted out.
+# scan of every app, and an active (attack) scan of every app that has not opted
+# out, which only runs when started by hand (`make scan PROFILE=active`).
 #
 # Cron expressions are evaluated in **UTC**, so the wall-clock time shifts by an
-# hour with British Summer Time. `schedule_trigger_config` is ForceNew: changing
-# a schedule replaces that job rather than updating it.
+# hour with British Summer Time. The trigger is ForceNew: changing a schedule,
+# or switching a job between scheduled and manual, replaces that job rather
+# than updating it — and a replaced job is back on the placeholder image until
+# the next `make deploy`.
 resource "azurerm_container_app_job" "scanner" {
   for_each = local.scan_profiles
 
@@ -28,10 +30,23 @@ resource "azurerm_container_app_job" "scanner" {
     identity_ids = [azurerm_user_assigned_identity.this.id]
   }
 
-  schedule_trigger_config {
-    cron_expression          = each.value.cron
-    parallelism              = 1
-    replica_completion_count = 1
+  # Exactly one trigger per job: a schedule when the profile has a cron, manual
+  # (start-by-hand only) when it has none.
+  dynamic "schedule_trigger_config" {
+    for_each = each.value.cron != null ? [each.value.cron] : []
+    content {
+      cron_expression          = schedule_trigger_config.value
+      parallelism              = 1
+      replica_completion_count = 1
+    }
+  }
+
+  dynamic "manual_trigger_config" {
+    for_each = each.value.cron == null ? [true] : []
+    content {
+      parallelism              = 1
+      replica_completion_count = 1
+    }
   }
 
   template {

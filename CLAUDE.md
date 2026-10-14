@@ -11,8 +11,9 @@ It discovers every container app with external ingress (Azure Resource Graph),
 scans each one over the public internet, and writes the reports to Blob
 Storage. There are two jobs on the same image, chosen by `SCAN_PROFILE`:
 **passive**, nightly, for every app, which never sends attack payloads, and
-**active**, weekly, which is **opt-out** (`security-scan-mode = "passive"`)
-and attacks. `security-scan = "false"` skips an app in both. The passive
+**active**, which is **opt-out** (`security-scan-mode = "passive"`), attacks,
+and has **no schedule**. It's a manual-trigger job (`make scan PROFILE=active`),
+because `local.scan_profiles.active.cron = null`. `security-scan = "false"` skips an app in both. The passive
 profile must never attack. `zap-api-scan.py` is active by default, so it
 always gets `-S` there, and `test_passive_profile_never_attacks` guards this. It is a platform *tenant* shaped like
 [jay-withers/finances](https://github.com/jay-withers/finances): follow that

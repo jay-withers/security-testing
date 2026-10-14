@@ -11,10 +11,21 @@ Blob Storage:
   the responses (missing security headers, insecure cookies, leaked versions).
   It never sends anything a browser wouldn't, so it can't change or break
   anything.
-- **Active**, weekly: every app that hasn't opted out. Fills every form field,
-  parameter and API input with attack strings (SQL injection, XSS, path
-  traversal, …) to find what is actually exploitable. It really submits them,
-  so anything an app saves fills with junk records.
+- **Active**, **on demand only**: every app that hasn't opted out. Fills every
+  form field, parameter and API input it can reach with attack strings (SQL
+  injection, XSS, path traversal, …) to find what is actually exploitable. It
+  really submits them, so any unauthenticated form that saves data fills with
+  junk records. Run it with `make scan PROFILE=active` after significant
+  changes to a login or form, or before a release.
+
+A clean passive scan does **not** mean an active scan would find nothing. They
+look for different things. Passive sees misconfiguration that shows in normal
+responses. Injection flaws only show when an attack is sent. Active scanning is
+on demand because, for apps whose only public surface is a login form, a
+weekly run's cost (an app-error alert per app, a flood of failed logins)
+outweighed what it added. Code scanning in each app's CI (CodeQL, bandit,
+`pip-audit`) is the cheaper way to catch injection bugs in your own code,
+including behind the login, which ZAP can't reach.
 
 It is a tenant of the platform, the same way `finances` is. The shared
 Container Apps environment (`cae-platform-dev`) and Log Analytics workspace
@@ -23,7 +34,7 @@ creates or changes them.
 
 ```text
 caj-sectest-dev-zap      passive  daily   02:00 UTC   zap-baseline.py | zap-api-scan.py -S
-caj-sectest-dev-zapfull  active   Sunday  04:00 UTC   zap-full-scan.py | zap-api-scan.py
+caj-sectest-dev-zapfull  active   manual  make scan PROFILE=active   zap-full-scan.py | zap-api-scan.py
   1. Resource Graph: container apps with external ingress (identity: Reader)
   2. one ZAP scan per app, per the profile and the app's tags
   3. reports  ──▶ st…/reports/<date>/<time>-<profile>/<sub>/<rg>/<app>/report.{html,json,md}
@@ -34,13 +45,13 @@ caj-sectest-dev-zapfull  active   Sunday  04:00 UTC   zap-full-scan.py | zap-api
 ## Controlling what gets scanned
 
 Both scans are **opt-out**: every app with external ingress gets the nightly
-passive scan *and* the weekly active scan unless it's tagged otherwise. Tags
-go on the *target* container app:
+passive scan, and is included in any active run, unless it's tagged otherwise.
+Tags go on the *target* container app:
 
 | Tag | Effect |
 | --- | --- |
 | `security-scan = "false"` | Skip this app in both scans. |
-| `security-scan-mode = "passive"` | Opt out of the weekly **active** scan only. The app still gets the nightly passive scan. Use this for anything whose stored data you can't have junk written into, or that can't take the traffic. |
+| `security-scan-mode = "passive"` | Opt out of **active** runs only. The app still gets the nightly passive scan. Use this for anything whose stored data you can't have junk written into, that locks out after repeated failed logins, or that can't take the traffic. |
 | `security-scan-openapi = "/openapi.json"` | Scan the endpoints in that spec instead of spidering, in whichever profile is running. The passive run still never attacks (it passes ZAP's safe mode, `-S`). The value must be a path on the app's own FQDN. |
 
 Apps that are stopped or have no ingress FQDN are skipped. Each skip is logged
@@ -64,20 +75,22 @@ is broken" to the platform. A finding is not that.
 
 ## Impact on the shared platform
 
-Read this before the first active run, because active scanning is on for
-every app by default.
+Read this before starting an active run, because it includes every app that
+isn't tagged `security-scan-mode = "passive"`.
 
 - **HTTP log volume.** Every request ZAP makes to a target app becomes a row
   in `ContainerAppHTTPLogs`, and those rows count against the shared
   workspace's 0.15 GB/day cap. Hitting that cap blinds every tenant's alerts
   for the rest of the day. A passive scan is a few hundred requests per app,
-  which is negligible. An active scan can be tens of thousands per app, and
-  every app gets one each Sunday. Watch the platform's log-quota alert on the
-  first Sunday, and tag apps `security-scan-mode = "passive"` if it gets close.
+  which is negligible. An active scan can be thousands to tens of thousands
+  per app. Watch the platform's log-quota alert after an active run, and
+  don't start one late in a day that's already been busy.
 - **The platform's app-error alert.** That rule fires when the same
   (app, path, 4xx/5xx) repeats 3 or more times in 15 minutes. Passive scans
   should stay under that. Active scans will not, so expect it to fire for
-  every app each Sunday until it's changed. Every scan request carries the
+  each app an active run attacks, until the rule excludes the scanner. The
+  rule ignores 401s, so attacks refused by a login don't count, but 422s
+  from malformed form data do. Every scan request carries the
   User-Agent `sectest-dast-scanner (…)` (`USER_AGENT` in
   `src/sectest/scan.py`), so the platform rule can exclude scanner traffic
   rather than fire on it. That change belongs in azure-container-apps, not
@@ -103,10 +116,10 @@ Only scan apps you own, and follow Microsoft's
    image** that does nothing.
 4. Let `cd-tag` publish an image (or `make build push`), then
    `make deploy IMAGE_TAG=vX.Y.Z` to put the scanner on both jobs.
-5. Tag anything that shouldn't be attacked `security-scan-mode = "passive"`
-   **before the first Sunday**.
-6. Run `make scan` for a passive run now, then `make logs` and
+5. Run `make scan` for a passive run now, then `make logs` and
    `make reports`.
+6. Before your first `make scan PROFILE=active`, tag anything that shouldn't
+   be attacked `security-scan-mode = "passive"`.
 
 ## Commands
 

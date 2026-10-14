@@ -6,7 +6,8 @@ OWASP ZAP scan against each one, and uploads the reports to Blob Storage.
 Two profiles run the same image, selected by SCAN_PROFILE:
 
   passive   nightly. Every app; spider + passive rules only, nothing is attacked.
-  active    weekly. Every app that has not opted out; sends attack payloads.
+  active    on demand only (no schedule). Every app that has not opted out;
+            sends attack payloads.
 
 Active scanning is **opt-out**. Per-app behaviour is controlled by tags on the
 target Container App:

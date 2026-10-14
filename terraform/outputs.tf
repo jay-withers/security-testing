@@ -11,7 +11,7 @@ output "scanner_job_name_passive" {
 }
 
 output "scanner_job_name_active" {
-  description = "Name of the weekly active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`."
+  description = "Name of the on-demand active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`."
   value       = azurerm_container_app_job.scanner["active"].name
 }
 
