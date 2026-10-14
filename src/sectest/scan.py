@@ -46,6 +46,9 @@ import re
 import signal
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -55,6 +58,19 @@ ZAP_WORK_DIR = Path("/zap/wrk")
 # and the platform's app-error alert can exclude it rather than fire on it.
 USER_AGENT = "sectest-dast-scanner (OWASP ZAP; +https://github.com/jay-withers/security-testing)"
 LOG_SOURCE = os.environ.get("LOG_SOURCE", "sectest")
+
+# Apps on the platform scale to zero, so the first request to one waits for a
+# replica to cold-start — longer than ZAP's default read timeout, which made
+# every cold app's scan fail with "Read timed out" and no report. warm_up()
+# wakes each app before ZAP starts; the longer ZAP timeout is the backstop for
+# an app that scales back down mid-scan.
+WARM_UP_DEADLINE_SECONDS = 180
+WARM_UP_REQUEST_TIMEOUT_SECONDS = 60
+WARM_UP_RETRY_SECONDS = 10
+# What Envoy returns while no replica is ready yet; anything else (a 401, a
+# 404) means the app itself answered, so it is awake.
+COLD_START_STATUSES = {502, 503, 504}
+ZAP_READ_TIMEOUT_SECONDS = 120
 
 RESOURCE_GRAPH_QUERY = """
 resources
@@ -177,7 +193,11 @@ def build_command(target: Target, spider_minutes: int) -> list[str]:
         f"{target.slug}.md",
     ]
     # -I: don't fail on warnings — severity is judged from the JSON report.
-    common = ["-I", "-z", f"-config connection.defaultUserAgent='{USER_AGENT}'", *reports]
+    zap_options = (
+        f"-config connection.defaultUserAgent='{USER_AGENT}' "
+        f"-config connection.timeoutInSecs={ZAP_READ_TIMEOUT_SECONDS}"
+    )
+    common = ["-I", "-z", zap_options, *reports]
     if target.mode in ("api", "api-full"):
         return [
             "zap-api-scan.py",
@@ -212,7 +232,48 @@ def exceeds_threshold(counts: dict[str, int], fail_on: str) -> bool:
     return any(n > 0 and RISK_LEVELS[risk] >= threshold for risk, n in counts.items())
 
 
+def _fetch_status(url: str, timeout: float) -> int:
+    """HTTP status of a GET, error statuses included rather than raised."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def warm_up(
+    url: str,
+    fetch=_fetch_status,
+    sleep=time.sleep,
+    clock=time.monotonic,
+    deadline: float = WARM_UP_DEADLINE_SECONDS,
+) -> tuple[bool, str]:
+    """Wake a scale-to-zero app before scanning it.
+
+    Retries until the app itself answers (any status but a cold-start 5xx) or
+    the deadline passes. Returns (awake, detail) — detail is the last status or
+    error, for the log line.
+    """
+    give_up_at = clock() + deadline
+    while True:
+        try:
+            status = fetch(url, WARM_UP_REQUEST_TIMEOUT_SECONDS)
+            if status not in COLD_START_STATUSES:
+                return True, f"HTTP {status}"
+            detail = f"HTTP {status}"
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+        if clock() + WARM_UP_RETRY_SECONDS >= give_up_at:
+            return False, detail
+        sleep(WARM_UP_RETRY_SECONDS)
+
+
 def run_scan(target: Target, spider_minutes: int, timeout: int) -> ScanResult:
+    awake, detail = warm_up(target.url)
+    # Scanned either way: ZAP's own, longer timeout may still get through, and
+    # a failed scan is reported as an error rather than silently skipped.
+    log("warm_up", target=target.name, url=target.url, awake=awake, detail=detail)
     cmd = build_command(target, spider_minutes)
     log("scan_started", target=target.name, url=target.url, mode=target.mode)
     # New session so a timeout can kill the whole process group — the ZAP
@@ -260,6 +321,7 @@ def upload_reports(container_client, run_prefix: str, result: ScanResult) -> Non
     t = result.target
     prefix = f"{run_prefix}/{t.subscription_id}/{t.resource_group}/{t.name}"
     content_types = {"json": "application/json", "html": "text/html", "md": "text/markdown"}
+    uploaded = False
     for ext, content_type in content_types.items():
         path = ZAP_WORK_DIR / f"{t.slug}.{ext}"
         if path.exists():
@@ -270,7 +332,11 @@ def upload_reports(container_client, run_prefix: str, result: ScanResult) -> Non
                     overwrite=True,
                     content_settings=ContentSettings(content_type=content_type),
                 )
-    result.report_prefix = prefix
+            uploaded = True
+    # Only set when something is actually there, so a failed scan's log line
+    # and summary entry don't point at an empty path.
+    if uploaded:
+        result.report_prefix = prefix
 
 
 def main() -> int:

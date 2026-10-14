@@ -64,10 +64,15 @@ deploy: ## Roll an image tag onto both scanner jobs (IMAGE_TAG required)
 			--image $(IMAGE_REGISTRY)/sectest:$(IMAGE_TAG) || exit 1; \
 	done
 
+# Starts the job and returns at once — it does not wait for the scan. A passive
+# run takes a few minutes per app, so `make reports` straight after shows the
+# previous run, not this one.
 scan: init ## Start a scan now (PROFILE=passive by default; PROFILE=active attacks)
 	az containerapp job start \
 		--name "$$(terraform -chdir=$(TF_DIR) output -raw scanner_job_name_$(PROFILE))" \
-		--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)"
+		--resource-group "$$(terraform -chdir=$(TF_DIR) output -raw resource_group_name)" \
+		--query name -o tsv
+	@echo "Started. Expect a few minutes per app; follow it with 'make logs', then 'make reports' once it ends."
 
 logs: init ## Show the latest run's log lines (PROFILE=passive by default)
 	az containerapp job logs show \
