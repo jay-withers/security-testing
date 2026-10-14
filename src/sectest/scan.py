@@ -235,9 +235,11 @@ def exceeds_threshold(counts: dict[str, int], fail_on: str) -> bool:
 
 def _fetch_status(url: str, timeout: float) -> int:
     """HTTP status of a GET, error statuses included rather than raised."""
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    # S310: the URL is always https://<fqdn> built in Target.url, never caller-supplied.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})  # noqa: S310
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # S310: the URL is always https://<fqdn> built in Target.url, never caller-supplied.
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             return response.status
     except urllib.error.HTTPError as exc:
         return exc.code
@@ -279,7 +281,8 @@ def run_scan(target: Target, spider_minutes: int, timeout: int) -> ScanResult:
     log("scan_started", target=target.name, url=target.url, mode=target.mode)
     # New session so a timeout can kill the whole process group — the ZAP
     # wrapper scripts start a JVM daemon that would otherwise outlive them.
-    proc = subprocess.Popen(cmd, cwd=ZAP_WORK_DIR, start_new_session=True)
+    # S603: argument list, no shell; the script names are fixed and the target URL is one this module built.
+    proc = subprocess.Popen(cmd, cwd=ZAP_WORK_DIR, start_new_session=True)  # noqa: S603
     try:
         exit_code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
