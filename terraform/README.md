@@ -47,7 +47,6 @@
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_active_scan_cron_expression"></a> [active\_scan\_cron\_expression](#input\_active\_scan\_cron\_expression) | When the active (attack) scan runs, in **UTC**. The default is 04:00 UTC on Sundays — two hours after that night's passive scan starts, which is that scan's full timeout, so the two never overlap on the same app. | `string` | `"0 4 * * 0"` | no |
 | <a name="input_active_scan_timeout_seconds"></a> [active\_scan\_timeout\_seconds](#input\_active\_scan\_timeout\_seconds) | Upper bound on one whole active run, across every target. Active scans take far longer per app than passive ones. | `number` | `21600` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment. Drives resource naming, and selects which shared platform environment this project deploys onto. | `string` | n/a | yes |
 | <a name="input_passive_scan_cron_expression"></a> [passive\_scan\_cron\_expression](#input\_passive\_scan\_cron\_expression) | When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST. | `string` | `"0 2 * * *"` | no |
@@ -71,6 +70,6 @@
 | <a name="output_reports_container_url"></a> [reports\_container\_url](#output\_reports\_container\_url) | Blob container scan reports are written to, for `make reports`. |
 | <a name="output_reports_storage_account_name"></a> [reports\_storage\_account\_name](#output\_reports\_storage\_account\_name) | Storage account holding the reports, for `az storage blob download --auth-mode login`. |
 | <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | This project's resource group. |
-| <a name="output_scanner_job_name_active"></a> [scanner\_job\_name\_active](#output\_scanner\_job\_name\_active) | Name of the weekly active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`. |
+| <a name="output_scanner_job_name_active"></a> [scanner\_job\_name\_active](#output\_scanner\_job\_name\_active) | Name of the on-demand active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`. |
 | <a name="output_scanner_job_name_passive"></a> [scanner\_job\_name\_passive](#output\_scanner\_job\_name\_passive) | Name of the nightly passive scanner job, for `make deploy` and `make scan`. |
 <!-- END_TF_DOCS -->

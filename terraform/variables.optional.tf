@@ -79,17 +79,6 @@ variable "passive_scan_cron_expression" {
   }
 }
 
-variable "active_scan_cron_expression" {
-  description = "When the active (attack) scan runs, in **UTC**. The default is 04:00 UTC on Sundays — two hours after that night's passive scan starts, which is that scan's full timeout, so the two never overlap on the same app."
-  type        = string
-  default     = "0 4 * * 0"
-
-  validation {
-    condition     = can(regex("^\\S+(\\s+\\S+){4}$", trimspace(var.active_scan_cron_expression)))
-    error_message = "active_scan_cron_expression must be a 5-field cron expression, e.g. \"0 4 * * 0\"."
-  }
-}
-
 variable "passive_scan_timeout_seconds" {
   description = "Upper bound on one whole passive run, across every target."
   type        = number

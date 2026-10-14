@@ -11,7 +11,7 @@ IMAGE_TAG ?= $(shell git rev-parse --short HEAD)
 IMAGE_TAG_EXPLICIT := $(filter-out file,$(origin IMAGE_TAG))
 
 # Which scanner job `scan` and `logs` act on: passive (nightly, every app,
-# nothing attacked) or active (weekly, sends attack payloads).
+# nothing attacked) or active (on demand only, sends attack payloads).
 PROFILE ?= passive
 
 .DEFAULT_GOAL := help
