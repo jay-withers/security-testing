@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -62,8 +63,18 @@ def _post(url: str, body: dict, headers: dict) -> dict:
     request = urllib.request.Request(  # noqa: S310
         url, data=json.dumps(body).encode(), headers=headers, method="POST"
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
-        return json.loads(response.read() or b"{}")
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        # Resend explains a rejection (an unverified sender, a bad key) in the
+        # body; HTTPError's own message is only the status line. The body
+        # never echoes the key, so it is safe to log.
+        try:
+            detail = exc.read().decode(errors="replace")[:500]
+        except Exception:
+            detail = ""
+        raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from None
 
 
 def send(

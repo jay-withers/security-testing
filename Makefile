@@ -86,13 +86,15 @@ reports: init ## List the latest run summaries in Blob Storage
 		--account-name "$$(terraform -chdir=$(TF_DIR) output -raw reports_storage_account_name)" \
 		--container-name reports --query "[?ends_with(name, 'summary.json')].name | sort(@) | [-5:]" -o tsv
 
-# Prints rather than runs: the values are yours to type, and a value on a
-# command line here would land in shell history. Until DIGEST-EMAIL-TO exists,
-# every passive run logs the digest as skipped.
+# Prints rather than runs, so the values are typed by you. Each printed command
+# reads its value from a silent prompt, so it never lands in shell history. Until
+# DIGEST-EMAIL-TO exists, every passive run logs the digest as skipped.
 secrets: init ## Print the az commands that set the digest's Key Vault secrets
-	@vault="$$(terraform -chdir=$(TF_DIR) output -raw key_vault_name)"; \
-		echo "az keyvault secret set --vault-name $$vault --name RESEND-API-KEY --value <key>"; \
-		echo "az keyvault secret set --vault-name $$vault --name DIGEST-EMAIL-TO --value <you@example.com>"
+	@vault="$$(terraform -chdir=$(TF_DIR) output -raw key_vault_name 2>/dev/null)"; \
+		if [ -z "$$vault" ]; then echo "error: no key_vault_name output; run make apply first" >&2; exit 1; fi; \
+		for name in RESEND-API-KEY DIGEST-EMAIL-TO; do \
+			echo "read -rsp '$$name: ' v && echo && az keyvault secret set --vault-name $$vault --name $$name --value \"\$$v\" -o none; unset v"; \
+		done
 
 init: ## terraform init against the ENV backend (default dev)
 	terraform -chdir=$(TF_DIR) init -reconfigure -backend-config=backends/$(ENV).hcl

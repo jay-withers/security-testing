@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from azure.core.exceptions import ResourceNotFoundError
 
 from sectest import digest, mailer
 
@@ -68,7 +69,7 @@ def test_new_and_resolved_are_per_app_and_rule():
     before = run("old", {"career": report(CSP, CLICKJACK, HSTS)})
     now = run("new", {"career": report(HSTS, alert("10063-1", "Permissions Policy Header Not Set", 1))})
 
-    d = digest.compare(now, before)
+    d = digest.compare(now, [before])
 
     assert [f.name for f in d.new] == ["Permissions Policy Header Not Set"]
     assert [f.name for f in d.resolved] == [
@@ -82,7 +83,7 @@ def test_a_failed_scan_resolves_nothing():
     before = run("old", {"career": report(CSP)})
     now = run("new", {"career": report()}, statuses={"career": "error"})
 
-    d = digest.compare(now, before)
+    d = digest.compare(now, [before])
 
     assert d.resolved == []
     assert d.current.errored == [("career", "boom")]
@@ -93,7 +94,7 @@ def test_an_app_new_to_the_scan_is_a_first_scan_not_new_findings():
     before = run("old", {"career": report(CSP)})
     now = run("new", {"career": report(CSP), "gymlog": report(CSP, HSTS)})
 
-    d = digest.compare(now, before)
+    d = digest.compare(now, [before])
 
     assert d.new == []
     assert d.first_scans == ["gymlog"]
@@ -103,14 +104,14 @@ def test_a_risk_change_reads_as_resolved_and_new():
     before = run("old", {"career": report(CSP)})
     now = run("new", {"career": report({**CSP, "riskcode": "3"})})
 
-    d = digest.compare(now, before)
+    d = digest.compare(now, [before])
 
     assert [(f.risk) for f in d.new] == ["High"]
     assert [(f.risk) for f in d.resolved] == ["Medium"]
 
 
 def test_first_digest_has_nothing_to_compare_with():
-    d = digest.compare(run("new", {"career": report(CSP, HSTS)}), None)
+    d = digest.compare(run("new", {"career": report(CSP, HSTS)}), [])
 
     assert digest.subject(d) == "Security scan: first digest, 1 Medium, 1 Low open"
     assert d.first_scans == ["career"]
@@ -121,7 +122,7 @@ def test_subject_counts_open_findings_across_apps():
     now = run("new", {"a": report(CSP, HSTS), "b": report()})
 
     assert (
-        digest.subject(digest.compare(now, before))
+        digest.subject(digest.compare(now, [before]))
         == "Security scan: 1 new, 1 resolved, 1 Medium, 1 Low open"
     )
 
@@ -130,7 +131,7 @@ def test_text_shows_deltas_against_the_previous_run():
     before = run("old", {"career": report(CSP, CLICKJACK)})
     now = run("new", {"career": report(CSP, HSTS)})
 
-    text = digest.render_text(digest.compare(now, before))
+    text = digest.render_text(digest.compare(now, [before]))
 
     assert "career: 0 / 1 (-1) / 1 (+1)" in text
 
@@ -138,7 +139,7 @@ def test_text_shows_deltas_against_the_previous_run():
 def test_html_escapes_everything_from_a_report():
     """Alert names come from ZAP, and app names from tags anyone can set."""
     evil = alert("99999", "<script>alert(1)</script>", 2)
-    d = digest.compare(run("new", {"<b>app</b>": report(evil)}), run("old", {"<b>app</b>": report()}))
+    d = digest.compare(run("new", {"<b>app</b>": report(evil)}), [run("old", {"<b>app</b>": report()})])
 
     rendered = digest.render_html(d)
 
@@ -160,6 +161,8 @@ class FakeContainer:
         self.blobs = {k: json.dumps(v).encode() for k, v in blobs.items()}
 
     def download_blob(self, name):
+        if name not in self.blobs:
+            raise ResourceNotFoundError(name)
         return FakeBlob(self.blobs[name])
 
     def list_blob_names(self):
@@ -194,7 +197,7 @@ def test_send_digest_never_raises(capsys):
 
     line = json.loads(capsys.readouterr().out.strip())
     assert line["status"] == "failed"
-    assert "KeyError" in line["error"]
+    assert "ResourceNotFoundError" in line["error"]
 
 
 def secrets(**values):
@@ -252,3 +255,101 @@ def test_environment_wins_over_the_vault(monkeypatch):
 
     assert mailer.get_secret("DIGEST-EMAIL-TO", None) == "me@example.com"
     assert mailer.get_secret("RESEND-API-KEY", None) is None
+
+
+def test_a_failed_scan_carries_its_last_findings_into_the_open_counts():
+    before = run("old", {"career": report(CSP, HSTS)})
+    now = run("new", {"career": report()}, statuses={"career": "error"})
+
+    d = digest.compare(now, [before])
+
+    assert d.total_open() == {"High": 0, "Medium": 1, "Low": 1}
+    assert "career: 0 / 1 / 1  [scan failed; last result" in digest.render_text(d)
+    assert "boom (last result carried over)" in digest.render_text(d)
+
+
+def test_every_app_failing_still_renders():
+    d = digest.compare(run("new", {"career": report()}, statuses={"career": "error"}), [])
+
+    assert d.total_open() == {"High": 0, "Medium": 0, "Low": 0}
+    assert "boom (no earlier result)" in digest.render_text(d)
+
+
+def test_an_app_that_failed_last_time_compares_with_its_last_completed_scan():
+    """Not a first scan: two runs back it completed, and that is the baseline."""
+    r0 = run("r0", {"career": report()}, started="2026-10-05T06:00:00")
+    r1 = run("r1", {"career": report()}, statuses={"career": "timeout"})
+    r2 = run("r2", {"career": report({**CSP, "riskcode": "3"})})
+
+    d = digest.compare(r2, [r1, r0])
+
+    assert [f.risk for f in d.new] == ["High"]
+    assert d.first_scans == []
+    assert "[compared with 2026-10-05]" in digest.render_text(d)
+
+
+def test_an_app_gone_from_the_scan_is_named_not_resolved():
+    before = run("old", {"a": report(CSP), "b": report(CSP)})
+    now = run("new", {"a": report(CSP)})
+
+    d = digest.compare(now, [before])
+
+    assert d.no_longer_scanned == ["b"]
+    assert d.resolved == []
+    assert "No longer scanned (findings dropped, not resolved): b" in digest.render_text(d)
+
+
+def test_an_app_skipped_by_tag_is_not_also_no_longer_scanned():
+    before = run("old", {"a": report(CSP), "b": report(CSP)})
+    now = run("new", {"a": report(CSP)}, skipped=[{"name": "b", "reason": "opted out via tag"}])
+
+    assert digest.compare(now, [before]).no_longer_scanned == []
+
+
+def test_a_missing_report_in_an_earlier_run_does_not_stop_the_digest(monkeypatch, capsys):
+    blobs = {
+        "2026-10-12/060000Z-passive/summary.json": summary(result("career"), started="2026-10-12T06:00:00"),
+        # run/career/report.json is missing: lifecycle-expired, or never uploaded.
+        "2026-10-19/060000Z-passive/summary.json": summary(result("career")),
+    }
+    blobs_current = {**blobs, "now/career/report.json": report(CSP)}
+    blobs_current["2026-10-19/060000Z-passive/summary.json"] = summary(
+        {**result("career"), "report_prefix": "now/career"}
+    )
+    monkeypatch.setattr(mailer, "send", lambda *a: mailer.MailResult(status="sent"))
+
+    digest.send_digest(FakeContainer(blobs_current), None, "2026-10-19/060000Z-passive", "x")
+
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert line["status"] == "sent"
+    assert line["resolved"] == 0
+
+
+def test_a_completed_target_without_a_report_says_so():
+    r = digest.build_run("p", summary(result("career")), reports={})
+
+    assert r.errored == [("career", "report missing")]
+
+
+def test_resend_rejection_body_is_kept(monkeypatch):
+    import io
+    import urllib.error
+
+    def reject(*_a, **_k):
+        raise urllib.error.HTTPError(
+            mailer.RESEND_ENDPOINT, 403, "Forbidden", {}, io.BytesIO(b'{"message":"domain not verified"}')
+        )
+
+    monkeypatch.setattr(mailer.urllib.request, "urlopen", reject)
+    result = mailer.send(
+        "s",
+        "h",
+        "t",
+        "from",
+        None,
+        secret=secrets(**{"DIGEST-EMAIL-TO": "a@example.com", "RESEND-API-KEY": "re_x"}),
+    )
+
+    assert result.status == "failed"
+    assert "HTTP 403" in result.error
+    assert "domain not verified" in result.error
