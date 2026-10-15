@@ -191,3 +191,165 @@ def test_warm_up_gives_up_at_the_deadline():
     assert not awake
     assert "TimeoutError" in detail
     assert clock.now < 60
+
+
+def test_warm_ahead_wakes_the_next_app_while_the_current_one_scans():
+    import threading
+
+    targets, _ = scan.select_targets([row(name=n, fqdn=f"{n}.example") for n in ("a", "b", "c")])
+    started = {n: threading.Event() for n in ("a", "b", "c")}
+    order = []
+
+    def warm(target):
+        order.append(f"warm {target.name}")
+        started[target.name].set()
+        return True, "HTTP 200"
+
+    for target, warming in scan.warm_ahead(targets, warm):
+        assert warming.result() == (True, "HTTP 200")
+        nxt = {"a": "b", "b": "c"}.get(target.name)
+        # The "scan" of this target only finishes once the next app's warm-up
+        # has begun, which it can only do if it was started concurrently.
+        if nxt:
+            assert started[nxt].wait(timeout=5), f"{nxt} was not warmed during {target.name}'s scan"
+        order.append(f"scan {target.name}")
+
+    assert order.index("warm b") < order.index("scan a")
+    assert order.index("warm c") < order.index("scan b")
+    assert order.count("warm a") == 1
+
+
+def test_warm_ahead_with_no_targets_yields_nothing():
+    assert list(scan.warm_ahead([], lambda t: (True, ""))) == []
+
+
+def test_a_warm_up_error_surfaces_on_that_target_only():
+    targets, _ = scan.select_targets([row(name=n, fqdn=f"{n}.example") for n in ("a", "b")])
+
+    def warm(target):
+        if target.name == "a":
+            raise RuntimeError("dns")
+        return True, "HTTP 200"
+
+    outcomes = []
+    for target, warming in scan.warm_ahead(targets, warm):
+        try:
+            outcomes.append((target.name, warming.result()))
+        except RuntimeError as exc:
+            outcomes.append((target.name, str(exc)))
+
+    assert outcomes == [("a", "dns"), ("b", (True, "HTTP 200"))]
+
+
+def test_a_fresh_early_warm_up_is_used_as_is():
+    target = scan.select_targets([row()])[0][0]
+
+    def rewarm(url):
+        raise AssertionError("rewarmed")
+
+    assert scan.fresh_warm_up(target, (True, "HTTP 200", 100.0), clock=lambda: 160.0, rewarm=rewarm) == (
+        True,
+        "HTTP 200",
+    )
+
+
+def test_a_stale_warm_up_wakes_the_app_again():
+    """After a long scan before it, the app may have scaled back to zero."""
+    target = scan.select_targets([row()])[0][0]
+    calls = []
+
+    def rewarm(url):
+        calls.append(url)
+        return True, "HTTP 401"
+
+    result = scan.fresh_warm_up(
+        target, (True, "HTTP 200", 100.0), clock=lambda: 100.0 + scan.WARM_UP_STALE_SECONDS + 1, rewarm=rewarm
+    )
+
+    assert result == (True, "HTTP 401")
+    assert calls == [target.url]
+
+
+def test_warm_ahead_stays_only_one_app_ahead():
+    """Waking every app at the start would let later ones scale back to zero."""
+    import threading
+
+    targets, _ = scan.select_targets([row(name=n, fqdn=f"{n}.example") for n in ("a", "b", "c")])
+    started = {n: threading.Event() for n in ("a", "b", "c")}
+    release = {n: threading.Event() for n in ("a", "b", "c")}
+
+    def warm(target):
+        started[target.name].set()
+        release[target.name].wait(timeout=5)
+        return True, "HTTP 200"
+
+    release["a"].set()
+    release["b"].set()
+    walk = scan.warm_ahead(targets, warm)
+    target, warming = next(walk)
+    assert target.name == "a"
+    warming.result()
+    # b's warm-up runs and finishes during a's turn; c's must not follow it
+    # until b is current. Anything queued early would start here.
+    assert started["b"].wait(timeout=5)
+    assert not started["c"].wait(timeout=0.5), "c was woken while a was still current"
+
+    target, _ = next(walk)
+    assert target.name == "b"
+    assert started["c"].wait(timeout=5)
+    release["c"].set()
+    walk.close()
+
+
+def test_scan_target_passes_the_fresh_warm_up_to_the_scan():
+    from concurrent.futures import Future
+
+    target = scan.select_targets([row()])[0][0]
+    early = Future()
+    early.set_result((True, "HTTP 200", 1.0))
+    seen = {}
+
+    def fresh(t, warmed):
+        seen["fresh"] = warmed
+        return False, "rewoken"
+
+    def fake_scan(t, spider_minutes, timeout, warmed):
+        seen["scan"] = warmed
+        return scan.ScanResult(t, "completed")
+
+    scan.scan_target(target, early, 5, 60, scan=fake_scan, fresh=fresh)
+
+    assert seen == {"fresh": (True, "HTTP 200", 1.0), "scan": (False, "rewoken")}
+
+
+def test_run_scan_does_not_repeat_an_early_warm_up(monkeypatch, tmp_path):
+    def no_warm_up(url):
+        raise AssertionError("warmed again")
+
+    class Proc:
+        pid = 1
+
+        def wait(self, timeout=None):
+            return 3  # ZAP "other failure": run_scan returns before reading a report
+
+    monkeypatch.setattr(scan, "warm_up", no_warm_up)
+    monkeypatch.setattr(scan, "ZAP_WORK_DIR", tmp_path)
+    monkeypatch.setattr(scan.subprocess, "Popen", lambda *a, **k: Proc())
+    target = scan.select_targets([row()])[0][0]
+
+    result = scan.run_scan(target, 5, 60, warmed=(True, "HTTP 200"))
+
+    assert result.status == "error"
+
+
+def test_timed_warm_up_stamps_when_the_warm_up_finished(monkeypatch):
+    now = {"t": 10.0}
+
+    def slow_warm_up(url):
+        now["t"] = 40.0
+        return True, "HTTP 200"
+
+    monkeypatch.setattr(scan, "warm_up", slow_warm_up)
+    monkeypatch.setattr(scan.time, "monotonic", lambda: now["t"])
+
+    assert scan._timed_warm_up(scan.select_targets([row()])[0][0]) == (True, "HTTP 200", 40.0)

@@ -53,6 +53,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -74,6 +76,11 @@ WARM_UP_RETRY_SECONDS = 10
 # What Envoy returns while no replica is ready yet; anything else (a 401, a
 # 404) means the app itself answered, so it is awake.
 COLD_START_STATUSES = {502, 503, 504}
+# An app is woken one ahead of its scan (warm_ahead). A warm-up older than this
+# by the time its scan starts is redone: the scan before it ran long (an active
+# scan can take an hour), and the app may have scaled back to zero since. Well
+# under the ~300s idle period after which Container Apps scales an app to zero.
+WARM_UP_STALE_SECONDS = 120
 ZAP_READ_TIMEOUT_SECONDS = 120
 
 RESOURCE_GRAPH_QUERY = """
@@ -275,8 +282,65 @@ def warm_up(
         sleep(WARM_UP_RETRY_SECONDS)
 
 
-def run_scan(target: Target, spider_minutes: int, timeout: int) -> ScanResult:
+def warm_ahead(
+    targets: list[Target], warm: Callable[[Target], tuple[bool, str]]
+) -> Iterator[tuple[Target, Future]]:
+    """Yield each target with its warm-up, starting the next one's early.
+
+    Scans stay one at a time, but each app's cold start (~25s measured)
+    happens while the previous app is being scanned rather than before its
+    own scan. Only one app ahead, not all of them at the start: Container Apps
+    scales an idle app back to zero after about five minutes, so with enough
+    apps the later ones would fall asleep again before their turn.
+    """
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warm-up")
+    try:
+        upcoming = pool.submit(warm, targets[0]) if targets else None
+        for i, target in enumerate(targets):
+            current = upcoming
+            upcoming = pool.submit(warm, targets[i + 1]) if i + 1 < len(targets) else None
+            yield target, current
+    finally:
+        # Not a `with` block, which would wait out an in-flight warm-up (up to
+        # WARM_UP_DEADLINE_SECONDS) before an interrupt could surface.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def fresh_warm_up(
+    target: Target,
+    warmed: tuple[bool, str, float],
+    clock: Callable[[], float] = time.monotonic,
+    rewarm: Callable[[str], tuple[bool, str]] = lambda url: warm_up(url),
+) -> tuple[bool, str]:
+    """An early warm-up's result, or a new one if it has gone stale."""
+    awake, detail, finished_at = warmed
+    if clock() - finished_at > WARM_UP_STALE_SECONDS:
+        return rewarm(target.url)
+    return awake, detail
+
+
+def _timed_warm_up(target: Target) -> tuple[bool, str, float]:
     awake, detail = warm_up(target.url)
+    return awake, detail, time.monotonic()
+
+
+def scan_target(
+    target: Target,
+    warming: Future,
+    spider_minutes: int,
+    timeout: int,
+    scan: Callable[..., ScanResult] | None = None,
+    fresh: Callable[[Target, tuple[bool, str, float]], tuple[bool, str]] = fresh_warm_up,
+) -> ScanResult:
+    """Scan one target with its early warm-up, re-waking it first if stale."""
+    scan = scan or run_scan
+    return scan(target, spider_minutes, timeout, warmed=fresh(target, warming.result()))
+
+
+def run_scan(
+    target: Target, spider_minutes: int, timeout: int, warmed: tuple[bool, str] | None = None
+) -> ScanResult:
+    awake, detail = warmed if warmed is not None else warm_up(target.url)
     # Scanned either way: ZAP's own, longer timeout may still get through, and
     # a failed scan is reported as an error rather than silently skipped.
     log("warm_up", target=target.name, url=target.url, awake=awake, detail=detail)
@@ -377,9 +441,9 @@ def main() -> int:
     container_client = ContainerClient.from_container_url(container_url, credential=credential)
 
     results: list[ScanResult] = []
-    for target in targets:
+    for target, warming in warm_ahead(targets, _timed_warm_up):
         try:
-            result = run_scan(target, spider_minutes, timeout)
+            result = scan_target(target, warming, spider_minutes, timeout)
             upload_reports(container_client, run_prefix, result)
         except Exception as exc:  # one bad target must not stop the run
             result = ScanResult(target, "error", error=str(exc))
