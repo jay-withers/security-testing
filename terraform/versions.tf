@@ -27,6 +27,11 @@ provider "azurerm" {
       # Azure has parked anything in the group that Terraform doesn't manage.
       prevent_deletion_if_contains_resources = false
     }
+    key_vault {
+      # Pairs with purge protection being off in main.key-vault.tf, so a
+      # destroy frees the vault's globally unique name at once.
+      purge_soft_delete_on_destroy = true
+    }
   }
 
   use_oidc = true

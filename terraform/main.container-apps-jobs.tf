@@ -1,12 +1,12 @@
-# The scanners: one job per profile in local.scan_profiles — a nightly passive
-# scan of every app, and an active (attack) scan of every app that has not opted
+# The scanners: one job per profile in local.scan_profiles — a weekly passive
+# scan of every app that ends by emailing the digest, and an active (attack) scan of every app that has not opted
 # out, which only runs when started by hand (`make scan PROFILE=active`).
 #
 # Cron expressions are evaluated in **UTC**, so the wall-clock time shifts by an
-# hour with British Summer Time. The trigger is ForceNew: changing a schedule,
-# or switching a job between scheduled and manual, replaces that job rather
-# than updating it — and a replaced job is back on the placeholder image until
-# the next `make deploy`.
+# hour with British Summer Time. A new cron expression updates the job in
+# place, but the trigger type is ForceNew: switching a job between scheduled
+# and manual replaces it, and a replaced job is back on the placeholder image
+# until the next `make deploy`.
 resource "azurerm_container_app_job" "scanner" {
   for_each = local.scan_profiles
 
@@ -61,7 +61,7 @@ resource "azurerm_container_app_job" "scanner" {
       image = local.placeholder_image
       # ZAP runs a JVM; 1 vCPU / 2 GiB is the smallest combination it runs
       # comfortably in. A job only bills while it runs, so this costs minutes a
-      # night, not a standing replica.
+      # week, not a standing replica.
       cpu    = local.container_cpu
       memory = local.container_memory
 
@@ -97,11 +97,12 @@ resource "azurerm_container_app_job" "scanner" {
     ]
   }
 
-  # Both grants must exist before the first scheduled run, or discovery or the
-  # report upload fails with a 403.
+  # Every grant must exist before the first scheduled run, or discovery, the
+  # report upload or the digest's secret lookup fails with a 403.
   depends_on = [
     azurerm_role_assignment.identity_reader,
     azurerm_role_assignment.identity_reports_contributor,
+    azurerm_role_assignment.identity_secrets_user,
   ]
 }
 

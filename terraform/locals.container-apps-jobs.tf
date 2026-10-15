@@ -9,8 +9,8 @@ locals {
   # quickstart job image prints a line and exits 0.
   #
   # **Run `make deploy` after any apply that creates or replaces the job** — the
-  # first apply, and any change to a ForceNew argument such as the passive cron
-  # expression or a job's trigger type. A replaced job comes back on this placeholder, and
+  # first apply, and any change to a ForceNew argument such as a job's trigger
+  # type (scheduled or manual; a new cron expression is in place). A replaced job comes back on this placeholder, and
   # because it exits 0 nothing alerts: runs "succeed" and no scan happens.
   placeholder_image = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
 
@@ -25,8 +25,12 @@ locals {
   # findings alert, so another tenant's logs can never match it.
   log_source = "sectest"
 
-  # One job per profile, same image. Passive is every app, nightly, and never
-  # attacks anything. Active sends real attack payloads to every app that hasn't
+  # One job per profile, same image. Passive is every app, weekly, never
+  # attacks anything, and ends by emailing the digest (src/sectest/digest.py).
+  # Weekly rather than nightly because passive findings change when apps are
+  # deployed, not overnight, and every run wakes each scale-to-zero app and
+  # lands in the shared workspace's HTTP logs; `make scan` covers a deploy
+  # worth checking sooner. Active sends real attack payloads to every app that hasn't
   # opted out (security-scan-mode = "passive"), and has no schedule (cron =
   # null): a clean passive run says nothing about what an attack would find,
   # but a weekly attack run cost a weekly app-error alert per app and login
@@ -51,6 +55,7 @@ locals {
   }
 
   # Shared by both jobs; each adds its SCAN_PROFILE and SCAN_TARGET_TIMEOUT.
+  # The digest settings reach the active job too and go unused there.
   scanner_env = {
     AZURE_CLIENT_ID         = azurerm_user_assigned_identity.this.client_id
     TARGET_SUBSCRIPTION_IDS = join(",", local.target_subscription_ids)
@@ -58,5 +63,7 @@ locals {
     SCAN_FAIL_ON            = var.scan_fail_on
     ENVIRONMENT             = var.environment
     LOG_SOURCE              = local.log_source
+    KEY_VAULT_URI           = azurerm_key_vault.this.vault_uri
+    DIGEST_EMAIL_FROM       = var.digest_email_from
   }
 }

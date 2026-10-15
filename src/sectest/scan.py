@@ -5,7 +5,8 @@ OWASP ZAP scan against each one, and uploads the reports to Blob Storage.
 
 Two profiles run the same image, selected by SCAN_PROFILE:
 
-  passive   nightly. Every app; spider + passive rules only, nothing is attacked.
+  passive   weekly. Every app; spider + passive rules only, nothing is attacked.
+            Ends by emailing a digest of what changed (digest.py).
   active    on demand only (no schedule). Every app that has not opted out;
             sends attack payloads.
 
@@ -29,6 +30,8 @@ Configuration comes from environment variables (set by the Terraform module):
   SCAN_PROFILE             passive | active (default passive — the safe one)
   ENVIRONMENT              recorded in the run summary
   LOG_SOURCE               stamped on every log line; the findings alert filters on it
+  KEY_VAULT_URI            vault holding RESEND-API-KEY and DIGEST-EMAIL-TO (see mailer.py)
+  DIGEST_EMAIL_FROM        sender of the digest, on a domain verified in Resend
   AZURE_CLIENT_ID          user-assigned managed identity (read by DefaultAzureCredential)
 
 Exit status is 0 whenever every scan ran, **even if it found something**. A
@@ -413,6 +416,13 @@ def main() -> int:
         errored=len(errored),
         summary=f"{run_prefix}/summary.json",
     )
+
+    # After the summary is uploaded, because the digest reads it back. Passive
+    # only — see digest.py. It never raises, so it cannot change the exit code.
+    if profile == "passive":
+        from .digest import send_digest
+
+        send_digest(container_client, credential, run_prefix, os.environ.get("DIGEST_EMAIL_FROM", ""))
 
     # Findings alone never fail the run — see the module docstring.
     return 1 if errored else 0

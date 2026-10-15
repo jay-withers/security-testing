@@ -7,10 +7,11 @@ ingress** in the target subscriptions, run an [OWASP ZAP](https://www.zaproxy.or
 scan against each one from the public internet, and write the reports to
 Blob Storage:
 
-- **Passive**, nightly: every app. Browses like a normal visitor and inspects
-  the responses (missing security headers, insecure cookies, leaked versions).
-  It never sends anything a browser wouldn't, so it can't change or break
-  anything.
+- **Passive**, weekly (Monday 06:00 UTC): every app. Browses like a normal
+  visitor and inspects the responses (missing security headers, insecure
+  cookies, leaked versions). It never sends anything a browser wouldn't, so it
+  can't change or break anything. Each run ends by emailing a
+  [digest](#the-digest) of what changed since the previous one.
 - **Active**, **on demand only**: every app that hasn't opted out. Fills every
   form field, parameter and API input it can reach with attack strings (SQL
   injection, XSS, path traversal, …) to find what is actually exploitable. It
@@ -33,25 +34,26 @@ Container Apps environment (`cae-platform-dev`) and Log Analytics workspace
 creates or changes them.
 
 ```text
-caj-sectest-dev-zap      passive  daily   02:00 UTC   zap-baseline.py | zap-api-scan.py -S
+caj-sectest-dev-zap      passive  weekly  Mon 06:00 UTC   zap-baseline.py | zap-api-scan.py -S
 caj-sectest-dev-zapfull  active   manual  make scan PROFILE=active   zap-full-scan.py | zap-api-scan.py
   1. Resource Graph: container apps with external ingress (identity: Reader)
   2. one ZAP scan per app, per the profile and the app's tags
   3. reports  ──▶ st…/reports/<date>/<time>-<profile>/<sub>/<rg>/<app>/report.{html,json,md}
                   st…/reports/<date>/<time>-<profile>/summary.json
   4. stdout   ──▶ shared environment ──▶ log-platform-dev  ──▶ findings alert
+  5. passive only: compare with the previous passive run ──▶ Resend ──▶ digest email
 ```
 
 ## Controlling what gets scanned
 
-Both scans are **opt-out**: every app with external ingress gets the nightly
+Both scans are **opt-out**: every app with external ingress gets the weekly
 passive scan, and is included in any active run, unless it's tagged otherwise.
 Tags go on the *target* container app:
 
 | Tag | Effect |
 | --- | --- |
 | `security-scan = "false"` | Skip this app in both scans. |
-| `security-scan-mode = "passive"` | Opt out of **active** runs only. The app still gets the nightly passive scan. Use this for anything whose stored data you can't have junk written into, that locks out after repeated failed logins, or that can't take the traffic. |
+| `security-scan-mode = "passive"` | Opt out of **active** runs only. The app still gets the weekly passive scan. Use this for anything whose stored data you can't have junk written into, that locks out after repeated failed logins, or that can't take the traffic. |
 | `security-scan-openapi = "/openapi.json"` | Scan the endpoints in that spec instead of spidering, in whichever profile is running. The passive run still never attacks (it passes ZAP's safe mode, `-S`). The value must be a path on the app's own FQDN. |
 
 Apps that are stopped or have no ingress FQDN are skipped. Each skip is logged
@@ -72,6 +74,32 @@ These are two different signals, and they go to two different alerts.
 
 The job exits 0 on findings because a failed execution means "this workload
 is broken" to the platform. A finding is not that.
+
+## The digest
+
+Every passive run, scheduled or started with `make scan`, ends by emailing
+what changed since the previous passive run:
+
+- open High / Medium / Low findings per app, with the change from last time
+- **new** and **resolved** findings, where a finding is an app plus a ZAP rule
+  plus its risk (Informational alerts are left out)
+- scans that failed, and apps that were skipped
+
+An app whose scan failed has no findings marked resolved, and an app scanned
+for the first time is listed as a first scan rather than as new findings.
+Active runs send nothing.
+
+Mail goes through [Resend](https://resend.com), as in finances. The API key
+and the recipients are Key Vault secrets (`make secrets` prints the commands).
+Until `DIGEST-EMAIL-TO` is set, each run logs `digest` with
+`status: skipped`. The sender, `digest_email_from`, must be on a domain
+verified in Resend. Sending never fails the job: a broken digest logs
+`status: failed` and the run exits on the scan's own result.
+
+The scan runs weekly rather than nightly because passive findings change when
+apps are deployed, not overnight, and each run wakes every scale-to-zero app.
+Run `make scan` after a deploy you want checked sooner, and the digest
+emails you the difference.
 
 ## Impact on the shared platform
 
@@ -116,9 +144,10 @@ Only scan apps you own, and follow Microsoft's
    image** that does nothing.
 4. Let `cd-tag` publish an image (or `make build push`), then
    `make deploy IMAGE_TAG=vX.Y.Z` to put the scanner on both jobs.
-5. Run `make scan` for a passive run now, then `make logs` and
-   `make reports`.
-6. Before your first `make scan PROFILE=active`, tag anything that shouldn't
+5. Set the digest's secrets with the commands `make secrets` prints.
+6. Run `make scan` for a passive run now, then `make logs` and
+   `make reports`. The first digest has nothing to compare with.
+7. Before your first `make scan PROFILE=active`, tag anything that shouldn't
    be attacked `security-scan-mode = "passive"`.
 
 ## Commands
@@ -133,6 +162,7 @@ make scan       # start a passive run now, outside the schedule
 make scan PROFILE=active       # start an active (attack) run now
 make logs       # the latest passive run's log lines (PROFILE=active for the other)
 make reports    # the latest run summaries in Blob Storage
+make secrets    # print the az commands that set the digest's secrets
 make plan / make apply         # ENV=dev by default
 ```
 
@@ -142,8 +172,9 @@ Terraform never sets the real image. It creates both jobs on a placeholder
 image, on both jobs at once. Everything else in the jobs, including the target
 subscriptions, the threshold and the schedules, is still Terraform's.
 
-**Run `make deploy` again after any apply that recreates a job.** Changing
-either cron expression replaces that job, for example. The new job comes back on
+**Run `make deploy` again after any apply that recreates a job.** Switching
+a job between scheduled and manual replaces it, for example (a new cron
+expression updates in place). The new job comes back on
 the placeholder, which exits 0, so no alert fires: runs "succeed" and nothing
 is scanned. If `make reports` shows no new runs, check this first.
 
@@ -161,6 +192,8 @@ az storage blob download --auth-mode login \
 Dockerfile                 # FROM zaproxy/zap-stable + the sectest venv
 pyproject.toml / uv.lock   # the scanner package
 src/sectest/scan.py        # discovery, scan dispatch, report upload
+src/sectest/digest.py      # the passive run's digest: compare, render, send
+src/sectest/mailer.py      # Resend, with secrets from Key Vault
 tests/                     # pytest, pure functions only
 terraform/
   data.tf                  # the shared platform, resolved by name
@@ -169,6 +202,7 @@ terraform/
   main.identity.tf         # identity + Reader on target subscriptions
   main.storage.tf          # reports storage, lifecycle, RBAC
   main.alerts.tf           # findings alert on the shared workspace
+  main.key-vault.tf        # the digest's Resend key and recipients
   backends/dev.hcl         # partial backend config
   environments/dev.tfvars
 .github/workflows/

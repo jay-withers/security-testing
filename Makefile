@@ -10,13 +10,13 @@ IMAGE_TAG ?= $(shell git rev-parse --short HEAD)
 # `file` means the ?= default fired rather than the caller passing one.
 IMAGE_TAG_EXPLICIT := $(filter-out file,$(origin IMAGE_TAG))
 
-# Which scanner job `scan` and `logs` act on: passive (nightly, every app,
+# Which scanner job `scan` and `logs` act on: passive (weekly, every app,
 # nothing attacked) or active (on demand only, sends attack payloads).
 PROFILE ?= passive
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint test build push deploy scan logs reports init fmt validate plan apply
+.PHONY: help install lint test build push deploy scan logs reports secrets init fmt validate plan apply
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -85,6 +85,14 @@ reports: init ## List the latest run summaries in Blob Storage
 	az storage blob list --auth-mode login \
 		--account-name "$$(terraform -chdir=$(TF_DIR) output -raw reports_storage_account_name)" \
 		--container-name reports --query "[?ends_with(name, 'summary.json')].name | sort(@) | [-5:]" -o tsv
+
+# Prints rather than runs: the values are yours to type, and a value on a
+# command line here would land in shell history. Until DIGEST-EMAIL-TO exists,
+# every passive run logs the digest as skipped.
+secrets: init ## Print the az commands that set the digest's Key Vault secrets
+	@vault="$$(terraform -chdir=$(TF_DIR) output -raw key_vault_name)"; \
+		echo "az keyvault secret set --vault-name $$vault --name RESEND-API-KEY --value <key>"; \
+		echo "az keyvault secret set --vault-name $$vault --name DIGEST-EMAIL-TO --value <you@example.com>"
 
 init: ## terraform init against the ENV backend (default dev)
 	terraform -chdir=$(TF_DIR) init -reconfigure -backend-config=backends/$(ENV).hcl

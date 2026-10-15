@@ -69,14 +69,20 @@ variable "target_subscription_ids" {
 }
 
 variable "passive_scan_cron_expression" {
-  description = "When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST."
+  description = "When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. Each run ends by emailing the digest. The default is 06:00 UTC every Monday, so the digest is waiting at the start of the week under both GMT and BST."
   type        = string
-  default     = "0 2 * * *"
+  default     = "0 6 * * 1"
 
   validation {
     condition     = can(regex("^\\S+(\\s+\\S+){4}$", trimspace(var.passive_scan_cron_expression)))
     error_message = "passive_scan_cron_expression must be a 5-field cron expression, e.g. \"0 2 * * *\"."
   }
+}
+
+variable "digest_email_from" {
+  description = "Sender of the digest, e.g. `Security scans <sectest@jaywithers.uk>`. Must be on a domain verified in Resend. The recipients are the Key Vault secret `DIGEST-EMAIL-TO`, not a variable, so no address lands in the repository or the state."
+  type        = string
+  default     = "Security scans <sectest@jaywithers.uk>"
 }
 
 variable "passive_scan_timeout_seconds" {

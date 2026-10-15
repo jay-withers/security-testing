@@ -28,11 +28,14 @@
 | Name | Type |
 | ---- | ---- |
 | [azurerm_container_app_job.scanner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/container_app_job) | resource |
+| [azurerm_key_vault.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault) | resource |
 | [azurerm_monitor_scheduled_query_rules_alert_v2.findings](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_scheduled_query_rules_alert_v2) | resource |
 | [azurerm_resource_group.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group) | resource |
 | [azurerm_role_assignment.deployer_reports_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.deployer_secrets_officer](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.identity_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.identity_reports_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.identity_secrets_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_storage_account.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account) | resource |
 | [azurerm_storage_container.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_container) | resource |
 | [azurerm_storage_management_policy.reports](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_management_policy) | resource |
@@ -48,8 +51,9 @@
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_active_scan_timeout_seconds"></a> [active\_scan\_timeout\_seconds](#input\_active\_scan\_timeout\_seconds) | Upper bound on one whole active run, across every target. Active scans take far longer per app than passive ones. | `number` | `21600` | no |
+| <a name="input_digest_email_from"></a> [digest\_email\_from](#input\_digest\_email\_from) | Sender of the digest, e.g. `Security scans <sectest@jaywithers.uk>`. Must be on a domain verified in Resend. The recipients are the Key Vault secret `DIGEST-EMAIL-TO`, not a variable, so no address lands in the repository or the state. | `string` | `"Security scans <sectest@jaywithers.uk>"` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment. Drives resource naming, and selects which shared platform environment this project deploys onto. | `string` | n/a | yes |
-| <a name="input_passive_scan_cron_expression"></a> [passive\_scan\_cron\_expression](#input\_passive\_scan\_cron\_expression) | When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. The default is 02:00 UTC daily: overnight under both GMT and BST. | `string` | `"0 2 * * *"` | no |
+| <a name="input_passive_scan_cron_expression"></a> [passive\_scan\_cron\_expression](#input\_passive\_scan\_cron\_expression) | When the passive scan of every app runs, in **UTC** — Container Apps jobs have no timezone setting. Each run ends by emailing the digest. The default is 06:00 UTC every Monday, so the digest is waiting at the start of the week under both GMT and BST. | `string` | `"0 6 * * 1"` | no |
 | <a name="input_passive_scan_timeout_seconds"></a> [passive\_scan\_timeout\_seconds](#input\_passive\_scan\_timeout\_seconds) | Upper bound on one whole passive run, across every target. | `number` | `7200` | no |
 | <a name="input_platform_action_group_name"></a> [platform\_action\_group\_name](#input\_platform\_action\_group\_name) | Name of the shared action group the findings alert notifies. | `string` | `"mag-platform-dev"` | no |
 | <a name="input_platform_environment_name"></a> [platform\_environment\_name](#input\_platform\_environment\_name) | Name of the shared Container Apps environment the scanner job runs on. | `string` | `"cae-platform-dev"` | no |
@@ -67,9 +71,10 @@
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_identity_client_id"></a> [identity\_client\_id](#output\_identity\_client\_id) | Client ID of the scanner's identity, which the job receives as `AZURE_CLIENT_ID`. |
+| <a name="output_key_vault_name"></a> [key\_vault\_name](#output\_key\_vault\_name) | Key Vault holding the digest's RESEND-API-KEY and DIGEST-EMAIL-TO, for `make secrets`. |
 | <a name="output_reports_container_url"></a> [reports\_container\_url](#output\_reports\_container\_url) | Blob container scan reports are written to, for `make reports`. |
 | <a name="output_reports_storage_account_name"></a> [reports\_storage\_account\_name](#output\_reports\_storage\_account\_name) | Storage account holding the reports, for `az storage blob download --auth-mode login`. |
 | <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | This project's resource group. |
 | <a name="output_scanner_job_name_active"></a> [scanner\_job\_name\_active](#output\_scanner\_job\_name\_active) | Name of the on-demand active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`. |
-| <a name="output_scanner_job_name_passive"></a> [scanner\_job\_name\_passive](#output\_scanner\_job\_name\_passive) | Name of the nightly passive scanner job, for `make deploy` and `make scan`. |
+| <a name="output_scanner_job_name_passive"></a> [scanner\_job\_name\_passive](#output\_scanner\_job\_name\_passive) | Name of the weekly passive scanner job, which also sends the digest, for `make deploy` and `make scan`. |
 <!-- END_TF_DOCS -->

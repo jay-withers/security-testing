@@ -6,13 +6,18 @@ output "resource_group_name" {
 # Two outputs rather than one map, so the Makefile can read either with
 # `output -raw scanner_job_name_$(PROFILE)` and no JSON parsing.
 output "scanner_job_name_passive" {
-  description = "Name of the nightly passive scanner job, for `make deploy` and `make scan`."
+  description = "Name of the weekly passive scanner job, which also sends the digest, for `make deploy` and `make scan`."
   value       = azurerm_container_app_job.scanner["passive"].name
 }
 
 output "scanner_job_name_active" {
   description = "Name of the on-demand active (attack) scanner job, for `make deploy` and `make scan PROFILE=active`."
   value       = azurerm_container_app_job.scanner["active"].name
+}
+
+output "key_vault_name" {
+  description = "Key Vault holding the digest's RESEND-API-KEY and DIGEST-EMAIL-TO, for `make secrets`."
+  value       = azurerm_key_vault.this.name
 }
 
 output "identity_client_id" {
