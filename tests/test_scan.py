@@ -43,7 +43,7 @@ def test_passive_profile_never_attacks():
     rows = [
         row(name="plain"),
         row(name="api", tags={"security-scan-openapi": "/openapi.json"}),
-        # A leftover opt-in tag from the old model must not make the nightly run active.
+        # A leftover opt-in tag from the old model must not make the passive run active.
         row(name="legacy", tags={"security-scan-mode": "full"}),
     ]
     targets, skipped = scan.select_targets(rows, "passive")

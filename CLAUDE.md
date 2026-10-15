@@ -10,7 +10,8 @@ the shared platform environment from
 It discovers every container app with external ingress (Azure Resource Graph),
 scans each one over the public internet, and writes the reports to Blob
 Storage. There are two jobs on the same image, chosen by `SCAN_PROFILE`:
-**passive**, nightly, for every app, which never sends attack payloads, and
+**passive**, weekly, for every app, which never sends attack payloads and
+ends by emailing a digest of what changed since the previous passive run, and
 **active**, which is **opt-out** (`security-scan-mode = "passive"`), attacks,
 and has **no schedule**. It's a manual-trigger job (`make scan PROFILE=active`),
 because `local.scan_profiles.active.cron = null`. `security-scan = "false"` skips an app in both. The passive
@@ -21,6 +22,10 @@ repo's conventions when in doubt.
 
 ## Layout
 
+- `src/sectest/digest.py` and `mailer.py`: the digest a passive run emails
+  (via Resend, secrets from this repo's Key Vault). It compares only apps
+  scanned in both runs, so a failed scan never reads as resolved, and it never
+  raises, so it can't change the job's exit code.
 - `src/sectest/scan.py`: the whole scanner. It has pure functions
   (`select_targets`, `build_command`, `count_risks`, `exceeds_threshold`) that
   `tests/` covers, plus the Azure/ZAP glue in `main()`. The console script
@@ -68,7 +73,8 @@ Terraform creates both jobs on a **placeholder image**
 image variable. `make deploy IMAGE_TAG=vX.Y.Z` (`az containerapp job update`)
 is the only thing that sets the scanner image, always on both jobs, and it rejects moving tags
 (`latest`/`main`). Any apply that creates or replaces the job (the first
-apply, or a ForceNew change like the cron) must be followed by `make deploy`,
+apply, or a ForceNew change like switching a job between scheduled and manual;
+a new cron expression updates in place) must be followed by `make deploy`,
 or the job silently runs the placeholder, which exits 0, so no alert fires. `cd-tag` publishes
 `ghcr.io/jay-withers/security-testing/sectest:{vX.Y.Z,<sha>}` via
 `cd-publish.yml` when `src/`, `Dockerfile`, `pyproject.toml` or `uv.lock`
