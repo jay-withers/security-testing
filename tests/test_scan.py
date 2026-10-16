@@ -335,11 +335,59 @@ def test_run_scan_does_not_repeat_an_early_warm_up(monkeypatch, tmp_path):
     monkeypatch.setattr(scan, "warm_up", no_warm_up)
     monkeypatch.setattr(scan, "ZAP_WORK_DIR", tmp_path)
     monkeypatch.setattr(scan.subprocess, "Popen", lambda *a, **k: Proc())
+    monkeypatch.setattr(scan, "stop_process_group", lambda *a, **k: False)
     target = scan.select_targets([row()])[0][0]
 
     result = scan.run_scan(target, 5, 60, warmed=(True, "HTTP 200"))
 
     assert result.status == "error"
+
+
+def test_run_scan_waits_for_zap_to_exit_before_returning(monkeypatch, tmp_path):
+    # ZAP's JVM outlives the wrapper script; the next scan's ZAP can't start
+    # until it has gone, so run_scan must not return before it has.
+    stopped = []
+
+    class Proc:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            return 3
+
+    monkeypatch.setattr(scan, "ZAP_WORK_DIR", tmp_path)
+    monkeypatch.setattr(scan.subprocess, "Popen", lambda *a, **k: Proc())
+    monkeypatch.setattr(scan, "stop_process_group", lambda pgid, **k: stopped.append(pgid))
+    target = scan.select_targets([row()])[0][0]
+
+    scan.run_scan(target, 5, 60, warmed=(True, "HTTP 200"))
+
+    assert stopped == [4242]
+
+
+def _orphaned_group(seconds: str):
+    """A wrapper that exits at once, leaving a child running in its process group,
+    like zap-full-scan.py leaving ZAP's JVM behind."""
+    import subprocess
+    import sys
+
+    code = f"import subprocess; subprocess.Popen(['sleep', '{seconds}'])"
+    proc = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+    proc.wait()
+    return proc.pid
+
+
+def test_stop_process_group_waits_for_a_leftover_child_to_exit():
+    pgid = _orphaned_group("0.5")
+
+    assert scan.stop_process_group(pgid, grace=10, poll=0.05) is False
+    assert scan._process_group_alive(pgid) is False
+
+
+def test_stop_process_group_kills_a_child_that_outlives_the_grace():
+    pgid = _orphaned_group("60")
+
+    assert scan.stop_process_group(pgid, grace=0.2, poll=0.05) is True
+    assert scan._process_group_alive(pgid) is False
 
 
 def test_timed_warm_up_stamps_when_the_warm_up_finished(monkeypatch):

@@ -82,6 +82,14 @@ COLD_START_STATUSES = {502, 503, 504}
 # under the ~300s idle period after which Container Apps scales an app to zero.
 WARM_UP_STALE_SECONDS = 120
 ZAP_READ_TIMEOUT_SECONDS = 120
+# The packaged scans end by asking ZAP to shut down and exit without waiting
+# for the JVM. Until it has gone it holds the lock on ZAP's home directory, and
+# the next scan's ZAP refuses to start ("The home directory is already in
+# use"), so the wrapper waits 600s for it and fails with no report. After an
+# active scan the JVM takes long enough to exit that every other app failed.
+# run_scan waits this long for the JVM to exit, then kills it.
+ZAP_SHUTDOWN_GRACE_SECONDS = 120
+ZAP_SHUTDOWN_POLL_SECONDS = 1.0
 
 RESOURCE_GRAPH_QUERY = """
 resources
@@ -337,6 +345,50 @@ def scan_target(
     return scan(target, spider_minutes, timeout, warmed=fresh(target, warming.result()))
 
 
+def _process_group_alive(pgid: int) -> bool:
+    # Reap exited members first. The image's ENTRYPOINT is PID 1, so the JVM
+    # the wrapper orphaned is re-parented to this process, and as an unreaped
+    # zombie it would still answer signal 0 after it has exited.
+    while True:
+        try:
+            pid, _ = os.waitpid(-pgid, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if pid == 0:
+            break
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def stop_process_group(
+    pgid: int,
+    grace: float = ZAP_SHUTDOWN_GRACE_SECONDS,
+    poll: float = ZAP_SHUTDOWN_POLL_SECONDS,
+) -> bool:
+    """Wait up to grace seconds for a process group to exit, then SIGKILL it.
+
+    Returns True if it had to be killed.
+    """
+    deadline = time.monotonic() + grace
+    while _process_group_alive(pgid):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(poll)
+    else:
+        return False
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        return False
+    kill_deadline = time.monotonic() + 10
+    while _process_group_alive(pgid) and time.monotonic() < kill_deadline:
+        time.sleep(0.1)
+    return True
+
+
 def run_scan(
     target: Target, spider_minutes: int, timeout: int, warmed: tuple[bool, str] | None = None
 ) -> ScanResult:
@@ -353,9 +405,12 @@ def run_scan(
     try:
         exit_code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        stop_process_group(proc.pid, grace=0)
         proc.wait()
         return ScanResult(target, "timeout", error=f"exceeded {timeout}s")
+    # The wrapper has exited, but ZAP's JVM (same process group) may not have.
+    if stop_process_group(proc.pid):
+        log("zap_killed", target=target.name, grace_seconds=ZAP_SHUTDOWN_GRACE_SECONDS)
 
     # ZAP exit codes: 0 pass, 1 FAIL rules hit, 2 WARN only, 3 other failure.
     report_path = ZAP_WORK_DIR / f"{target.slug}.json"
