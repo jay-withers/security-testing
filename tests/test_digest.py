@@ -353,3 +353,56 @@ def test_resend_rejection_body_is_kept(monkeypatch):
     assert result.status == "failed"
     assert "HTTP 403" in result.error
     assert "domain not verified" in result.error
+
+
+def test_an_active_run_compares_only_with_earlier_active_runs():
+    names = [
+        "2026-10-12/060101Z-active/summary.json",
+        "2026-10-14/120000Z-passive/summary.json",
+    ]
+
+    assert digest.previous_prefix(names, "2026-10-19/060101Z-active") == "2026-10-12/060101Z-active"
+    assert digest.previous_prefix(names, "2026-10-19/060101Z-passive") == "2026-10-14/120000Z-passive"
+
+
+def test_an_active_digest_lists_every_open_finding():
+    d = digest.compare(
+        run("2026-10-15/202812Z-active", {"career": report(CSP, HSTS), "gymlog": report(CLICKJACK)}), []
+    )
+
+    assert digest.subject(d) == "Active security scan: first digest, 2 Medium, 1 Low open"
+    text = digest.render_text(d)
+    assert "Open findings (3):" in text
+    assert "[Medium] career: Content Security Policy (CSP) Header Not Set" in text
+    assert "[Low] career: Strict-Transport-Security Header Not Set" in text
+    assert "<h3>Open findings (3)</h3>" in digest.render_html(d)
+
+
+def test_a_passive_digest_does_not_list_every_open_finding():
+    d = digest.compare(run("2026-10-19/060000Z-passive", {"career": report(CSP)}), [])
+
+    assert "Open findings" not in digest.render_text(d)
+    assert "Open findings" not in digest.render_html(d)
+
+
+def test_send_digest_for_an_active_run_ignores_passive_runs(monkeypatch, capsys):
+    blobs = {
+        "2026-10-12/060000Z-passive/summary.json": summary(result("career"), started="2026-10-12T06:00:00"),
+        "run/career/report.json": report(CSP),
+        "2026-10-15/202812Z-active/summary.json": summary(result("career")),
+    }
+    sent = {}
+
+    def fake_send(subject, html, text, sender, credential):
+        sent.update(subject=subject, text=text)
+        return mailer.MailResult(status="sent")
+
+    monkeypatch.setattr(mailer, "send", fake_send)
+
+    digest.send_digest(FakeContainer(blobs), None, "2026-10-15/202812Z-active", "x")
+
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert line["profile"] == "active"
+    assert line["previous"] is None
+    assert sent["subject"].startswith("Active security scan: first digest")
+    assert "[Medium] career: Content Security Policy (CSP) Header Not Set" in sent["text"]

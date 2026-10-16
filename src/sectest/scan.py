@@ -8,7 +8,7 @@ Two profiles run the same image, selected by SCAN_PROFILE:
   passive   weekly. Every app; spider + passive rules only, nothing is attacked.
             Ends by emailing a digest of what changed (digest.py).
   active    on demand only (no schedule). Every app that has not opted out;
-            sends attack payloads.
+            sends attack payloads. Ends by emailing its findings (digest.py).
 
 Active scanning is **opt-out**. Per-app behaviour is controlled by tags on the
 target Container App:
@@ -37,8 +37,8 @@ Configuration comes from environment variables (set by the Terraform module):
 Exit status is 0 whenever every scan ran, **even if it found something**. A
 non-zero exit fails the job execution, which the shared platform's
 workload-crashed alert reads as "this workload is broken". Findings are reported
-as `scan_finished` lines with `over_threshold: true` instead, and alerted on by
-terraform/main.alerts.tf.
+as `scan_finished` lines with `over_threshold: true` instead. A passive run's
+are alerted on by terraform/main.alerts.tf; an active run's arrive by email.
 """
 
 from __future__ import annotations
@@ -536,12 +536,11 @@ def main() -> int:
         summary=f"{run_prefix}/summary.json",
     )
 
-    # After the summary is uploaded, because the digest reads it back. Passive
-    # only — see digest.py. It never raises, so it cannot change the exit code.
-    if profile == "passive":
-        from .digest import send_digest
+    # After the summary is uploaded, because the digest reads it back. It never
+    # raises, so it cannot change the exit code.
+    from .digest import send_digest
 
-        send_digest(container_client, credential, run_prefix, os.environ.get("DIGEST_EMAIL_FROM", ""))
+    send_digest(container_client, credential, run_prefix, os.environ.get("DIGEST_EMAIL_FROM", ""))
 
     # Findings alone never fail the run — see the module docstring.
     return 1 if errored else 0

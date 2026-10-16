@@ -17,7 +17,8 @@ Blob Storage:
   injection, XSS, path traversal, …) to find what is actually exploitable. It
   really submits them, so any unauthenticated form that saves data fills with
   junk records. Run it with `make scan PROFILE=active` after significant
-  changes to a login or form, or before a release.
+  changes to a login or form, or before a release. Each run ends by emailing
+  its findings.
 
 A clean passive scan does **not** mean an active scan would find nothing. They
 look for different things. Passive sees misconfiguration that shows in normal
@@ -40,8 +41,8 @@ caj-sectest-dev-zapfull  active   manual  make scan PROFILE=active   zap-full-sc
   2. one ZAP scan per app, per the profile and the app's tags
   3. reports  ──▶ st…/reports/<date>/<time>-<profile>/<sub>/<rg>/<app>/report.{html,json,md}
                   st…/reports/<date>/<time>-<profile>/summary.json
-  4. stdout   ──▶ shared environment ──▶ log-platform-dev  ──▶ findings alert
-  5. passive only: compare with the previous passive run ──▶ Resend ──▶ digest email
+  4. stdout   ──▶ shared environment ──▶ log-platform-dev  ──▶ findings alert (passive only)
+  5. compare with the previous run of the same profile ──▶ Resend ──▶ digest email
 ```
 
 ## Controlling what gets scanned
@@ -65,9 +66,10 @@ These are two different signals, and they go to two different alerts.
 
 - **The scan found something** at or above `scan_fail_on` (default `High`).
   The job still **exits 0**. Each target logs a `scan_finished` JSON line with
-  `over_threshold: true`, and this repo's own alert
+  `over_threshold: true`. For a passive run, this repo's own alert
   (`terraform/main.alerts.tf`) fires against the shared workspace, split per
-  target app, through the platform's action group.
+  target app, through the platform's action group. An active run's findings
+  arrive in [its digest email](#the-digest) instead, not as alerts.
 - **The scan itself broke**: ZAP crashed, a target timed out, or there was an
   RBAC 403. The job **exits 1**. The platform's existing workload-crashed
   alert picks that up with no wiring from here.
@@ -87,7 +89,12 @@ what changed since the previous passive run:
 
 An app whose scan failed has no findings marked resolved, and an app scanned
 for the first time is listed as a first scan rather than as new findings.
-Active runs send nothing.
+
+Active runs email a digest too, with "Active security scan" in the subject.
+It is compared only with the previous active run, never with a passive one,
+and it lists every open finding as well as what changed, because the email is
+how an active run's result arrives. Active findings don't trigger the
+findings alert.
 
 Mail goes through [Resend](https://resend.com), as in finances. The API key
 and the recipients are Key Vault secrets (`make secrets` prints the commands).
@@ -192,7 +199,7 @@ az storage blob download --auth-mode login \
 Dockerfile                 # FROM zaproxy/zap-stable + the sectest venv
 pyproject.toml / uv.lock   # the scanner package
 src/sectest/scan.py        # discovery, scan dispatch, report upload
-src/sectest/digest.py      # the passive run's digest: compare, render, send
+src/sectest/digest.py      # each run's digest: compare, render, send
 src/sectest/mailer.py      # Resend, with secrets from Key Vault
 tests/                     # pytest, pure functions only
 terraform/

@@ -1,9 +1,11 @@
-"""The digest: what changed since the previous passive run, by email.
+"""The digest: a run's results and what changed since the previous run, by email.
 
-Sent at the end of every passive run, so the weekly schedule gives a weekly
-digest and a `make scan` after a fix emails what that fix changed. Active runs
-send nothing: they are started by hand, and their findings are attack results
-that don't compare with a passive baseline.
+Sent at the end of every run. A passive run's weekly schedule gives a weekly
+digest, and a `make scan` after a fix emails what that fix changed. An active
+run is started by hand, so its email is how its result arrives: it lists every
+open finding as well as the changes, and the findings alert ignores active
+runs. **Each profile is compared only with runs of the same profile**, because
+attack results don't compare with a passive baseline.
 
 **A finding is an app plus a ZAP rule plus a risk**, keyed on ZAP's `alertRef`
 (falling back to `pluginid`), so one rule raising five instances is one
@@ -35,7 +37,7 @@ from dataclasses import dataclass, field
 from .scan import RISK_NAMES, log
 
 REPORTED_RISKS = ("High", "Medium", "Low")
-SUMMARY_SUFFIX = "-passive/summary.json"
+PROFILES = ("passive", "active")
 # How many earlier runs to read looking for each app's last completed scan.
 # Eight weekly runs is two months; an app failing longer than that is a
 # problem the failed-scans section already shouts about.
@@ -89,8 +91,15 @@ class Digest:
             return None
         return _counts(self.baseline[app_id].findings[app_id])
 
+    @property
+    def profile(self) -> str:
+        return profile_of(self.current.prefix)
+
+    def all_open(self) -> list[Finding]:
+        return sorted(set().union(set(), *self.current.findings.values(), *self.carried.values()), key=_order)
+
     def total_open(self) -> dict[str, int]:
-        return _counts(set().union(set(), *self.current.findings.values(), *self.carried.values()))
+        return _counts(set(self.all_open()))
 
     def app_rows(self) -> list[str]:
         """Apps with something to show, by name: completed this run, or carried."""
@@ -129,12 +138,22 @@ def findings_from_report(app_id: str, app: str, report: dict) -> set[Finding]:
     return found
 
 
+def profile_of(prefix: str) -> str:
+    """The profile a run prefix (`YYYY-MM-DD/HHMMSSZ-<profile>`) belongs to.
+
+    Passive when it names none, the profile every run had before active existed.
+    """
+    profile = prefix.rsplit("-", 1)[-1]
+    return profile if profile in PROFILES else "passive"
+
+
 def previous_prefix(blob_names: list[str], current: str) -> str | None:
-    """The latest passive run before `current`, from the container's blob names.
+    """The latest run of `current`'s profile before it, from the container's blob names.
 
     Run prefixes are `YYYY-MM-DD/HHMMSSZ-<profile>`, so they sort by time.
     """
-    runs = sorted(n[: -len("/summary.json")] for n in blob_names if n.endswith(SUMMARY_SUFFIX))
+    suffix = f"-{profile_of(current)}/summary.json"
+    runs = sorted(n[: -len("/summary.json")] for n in blob_names if n.endswith(suffix))
     earlier = [r for r in runs if r < current]
     return earlier[-1] if earlier else None
 
@@ -211,7 +230,9 @@ def _order(f: Finding) -> tuple:
 def subject(d: Digest) -> str:
     totals = d.total_open()
     open_part = ", ".join(f"{n} {risk}" for risk, n in totals.items() if n) or "nothing"
-    head = "Security scan" if not d.current.errored else f"Security scan ({len(d.current.errored)} failed)"
+    head = "Active security scan" if d.profile == "active" else "Security scan"
+    if d.current.errored:
+        head += f" ({len(d.current.errored)} failed)"
     if d.previous is None:
         return f"{head}: first digest, {open_part} open"
     return f"{head}: {len(d.new)} new, {len(d.resolved)} resolved, {open_part} open"
@@ -239,6 +260,10 @@ def render_text(d: Digest) -> str:
         cells = " / ".join(f"{now[r]}{_delta(now[r], before and before[r])}" for r in REPORTED_RISKS)
         note = d.row_note(app_id)
         lines.append(f"  {d.current.names[app_id]}: {cells}" + (f"  [{note}]" if note else ""))
+    if d.profile == "active":
+        found = d.all_open()
+        lines += ["", f"Open findings ({len(found)}):"]
+        lines += [f"  [{f.risk}] {f.app}: {f.name}" for f in found] or ["  none"]
     for title, items in (("New", d.new), ("Resolved", d.resolved)):
         lines += ["", f"{title} ({len(items)}):"]
         lines += [f"  [{f.risk}] {f.app}: {f.name}" for f in items] or ["  none"]
@@ -295,6 +320,11 @@ def render_html(d: Digest) -> str:
         f'<table style="border-collapse:collapse"><tr><th {cell.format("left")}>App</th>{head}</tr>',
         *rows,
         "</table>",
+        *(
+            [f"<h3>Open findings ({len(d.all_open())})</h3>", finding_list(d.all_open())]
+            if d.profile == "active"
+            else []
+        ),
         f"<h3>New ({len(d.new)})</h3>",
         finding_list(d.new),
         f"<h3>Resolved ({len(d.resolved)})</h3>",
@@ -336,7 +366,7 @@ def _load_run(container_client, prefix: str) -> Run:
 
 
 def _earlier_runs(container_client, current: Run) -> list[Run]:
-    """Earlier passive runs, newest first, until every app has a baseline.
+    """Earlier runs of the same profile, newest first, until every app has a baseline.
 
     Stops at MAX_LOOKBACK, or as soon as each app in `current` has a
     completed scan somewhere in what has been read.
@@ -353,7 +383,7 @@ def _earlier_runs(container_client, current: Run) -> list[Run]:
 
 
 def send_digest(container_client, credential, run_prefix: str, sender: str) -> None:
-    """Compare this run with the earlier passive ones and email the result.
+    """Compare this run with earlier ones of its profile and email the result.
 
     Never raises — see the module docstring.
     """
@@ -366,6 +396,7 @@ def send_digest(container_client, credential, run_prefix: str, sender: str) -> N
         result = mailer.send(subject(digest), render_html(digest), render_text(digest), sender, credential)
         log(
             "digest",
+            profile=digest.profile,
             status=result.status,
             error=result.error,
             provider_id=result.provider_id,
