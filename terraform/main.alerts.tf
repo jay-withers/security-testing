@@ -1,4 +1,6 @@
-# Findings, alerted on from the shared workspace.
+# Findings, alerted on from the shared workspace. Passive runs only: an active
+# run is started by hand, and its findings arrive in the email it ends with
+# (src/sectest/digest.py), so alerting on them as well would only duplicate it.
 #
 # **Why the job exits 0 when it finds something.** The platform's
 # workload-crashed alert fires on any job execution that fails
@@ -14,7 +16,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "findings" {
   name                = "alert-${var.project_name}-${var.environment}-findings"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
-  description         = "The DAST scanner found alerts at or above ${var.scan_fail_on} risk on a container app. The report path is in the alert payload."
+  description         = "The weekly passive DAST scan found alerts at or above ${var.scan_fail_on} risk on a container app. The report path is in the alert payload."
   severity            = 2
 
   # Without this every evaluation re-notifies while the rows are still in the
@@ -39,6 +41,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "findings" {
       | where Log_s has "scan_finished" and Log_s has "${local.log_source}"
       | extend e = parse_json(Log_s)
       | where tostring(e.source) == "${local.log_source}" and tostring(e.event) == "scan_finished" and tobool(e.over_threshold)
+      | where tostring(e.profile) != "active"
       | project TimeGenerated, Target = tostring(e.target), Profile = tostring(e.profile), Url = tostring(e.url), Risks = tostring(e.risks), Report = tostring(e.report)
     KQL
 

@@ -88,7 +88,7 @@ reports: init ## List the latest run summaries in Blob Storage
 
 # Prints rather than runs, so the values are typed by you. Each printed command
 # reads its value from a silent prompt, so it never lands in shell history. Until
-# DIGEST-EMAIL-TO exists, every passive run logs the digest as skipped.
+# DIGEST-EMAIL-TO exists, every run logs the digest as skipped.
 secrets: init ## Print the az commands that set the digest's Key Vault secrets
 	@vault="$$(terraform -chdir=$(TF_DIR) output -raw key_vault_name 2>/dev/null)"; \
 		if [ -z "$$vault" ]; then echo "error: no key_vault_name output; run make apply first" >&2; exit 1; fi; \

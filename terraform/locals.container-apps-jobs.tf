@@ -55,7 +55,7 @@ locals {
   }
 
   # Shared by both jobs; each adds its SCAN_PROFILE and SCAN_TARGET_TIMEOUT.
-  # The digest settings reach the active job too and go unused there.
+  # Both jobs email a digest, so both get the digest settings.
   scanner_env = {
     AZURE_CLIENT_ID         = azurerm_user_assigned_identity.this.client_id
     TARGET_SUBSCRIPTION_IDS = join(",", local.target_subscription_ids)

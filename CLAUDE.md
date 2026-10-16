@@ -13,7 +13,7 @@ Storage. There are two jobs on the same image, chosen by `SCAN_PROFILE`:
 **passive**, weekly, for every app, which never sends attack payloads and
 ends by emailing a digest of what changed since the previous passive run, and
 **active**, which is **opt-out** (`security-scan-mode = "passive"`), attacks,
-and has **no schedule**. It's a manual-trigger job (`make scan PROFILE=active`),
+has **no schedule**, and ends by emailing its findings instead of alerting. It's a manual-trigger job (`make scan PROFILE=active`),
 because `local.scan_profiles.active.cron = null`. `security-scan = "false"` skips an app in both. The passive
 profile must never attack. `zap-api-scan.py` is active by default, so it
 always gets `-S` there, and `test_passive_profile_never_attacks` guards this. It is a platform *tenant* shaped like
@@ -22,9 +22,10 @@ repo's conventions when in doubt.
 
 ## Layout
 
-- `src/sectest/digest.py` and `mailer.py`: the digest a passive run emails
-  (via Resend, secrets from this repo's Key Vault). It compares only apps
-  scanned in both runs, so a failed scan never reads as resolved, and it never
+- `src/sectest/digest.py` and `mailer.py`: the digest every run emails (via
+  Resend, secrets from this repo's Key Vault). Each profile is compared only
+  with its own earlier runs, and an active digest lists every open finding. It
+  compares only apps scanned in both runs, so a failed scan never reads as resolved, and it never
   raises, so it can't change the job's exit code.
 - `src/sectest/scan.py`: the whole scanner. It has pure functions
   (`select_targets`, `build_command`, `count_risks`, `exceeds_threshold`) that
@@ -56,8 +57,9 @@ repo's conventions when in doubt.
   splits on `JobName_s`.
 - **Exit codes:** the job exits non-zero only when a scan *failed*, which the
   platform alert catches. Findings exit 0 and are logged as `scan_finished`
-  JSON with `over_threshold`, which `terraform/main.alerts.tf` alerts on. Don't
-  make findings fail the job.
+  JSON with `over_threshold`, which `terraform/main.alerts.tf` alerts on for
+  passive runs only (active findings arrive by email). Don't make findings fail
+  the job.
 - Every log line carries `source` (`LOG_SOURCE`, set from `local.log_source`).
   The findings alert filters on it, so keep the two in step.
 - Every scan request sends `USER_AGENT` from `scan.py`, so the platform's

@@ -1,6 +1,7 @@
 # The scanners: one job per profile in local.scan_profiles — a weekly passive
 # scan of every app that ends by emailing the digest, and an active (attack) scan of every app that has not opted
-# out, which only runs when started by hand (`make scan PROFILE=active`).
+# out, which only runs when started by hand (`make scan PROFILE=active`) and
+# ends by emailing its findings.
 #
 # Cron expressions are evaluated in **UTC**, so the wall-clock time shifts by an
 # hour with British Summer Time. A new cron expression updates the job in

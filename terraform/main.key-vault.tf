@@ -1,4 +1,4 @@
-# The digest's two secrets, read by scan.py at the end of a passive run. Mirrors
+# The digest's two secrets, read by scan.py at the end of every run. Mirrors
 # jay-withers/finances' main.key-vault.tf; the reasoning behind each setting is
 # there too. Because the vault holds only this project's secrets, the
 # identity's grant can be vault-wide without widening anything.
