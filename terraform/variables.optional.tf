@@ -20,7 +20,7 @@ variable "tags" {
 }
 
 variable "report_reader_object_ids" {
-  description = "Extra Entra object IDs granted Storage Blob Data Reader on the reports container. Whoever runs `terraform apply` is always included, so this is only for a second person or a second machine."
+  description = "Extra Entra object IDs granted Storage Blob Data Reader on the reports container. `administrator_object_id` is always included, so this is only for a second person or a second machine."
   type        = list(string)
   default     = []
 }
