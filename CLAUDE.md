@@ -81,7 +81,7 @@ or the job silently runs the placeholder, which exits 0, so no alert fires. `cd-
 `ghcr.io/jay-withers/security-testing/sectest:{vX.Y.Z,<sha>}` via
 `cd-publish.yml` when `src/`, `Dockerfile`, `pyproject.toml` or `uv.lock`
 changed since the previous release. Keep that path list in step with
-`ci-container-build.yml`'s filter.
+`ci-container-build.yml`'s filter. `cd-publish`'s `deploy` job then runs `make deploy IMAGE_TAG=<release>` against dev through the shared `container-apps-deploy.yml` (OIDC in the `dev` GitHub environment; `cd-tag`'s `publish` job grants `id-token: write` for it). An apply that recreates a workload does not trigger it: re-run `cd-publish` with `workflow_dispatch` and the current tag.
 
 ## File layout is enforced
 
