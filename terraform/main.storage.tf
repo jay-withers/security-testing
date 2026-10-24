@@ -89,13 +89,10 @@ resource "azurerm_role_assignment" "identity_reports_contributor" {
   principal_type       = "ServicePrincipal"
 }
 
-# Whoever applies can read the reports — which is what `make reports` does.
+# The administrator can read the reports — which is what `make reports` does.
 # Reader, not Contributor: nothing but the scanner should be writing here.
 resource "azurerm_role_assignment" "deployer_reports_reader" {
-  for_each = toset(concat(
-    [data.azurerm_client_config.current.object_id],
-    var.report_reader_object_ids,
-  ))
+  for_each = toset(concat([var.administrator_object_id], var.report_reader_object_ids))
 
   scope                = local.reports_container_scope
   role_definition_name = "Storage Blob Data Reader"

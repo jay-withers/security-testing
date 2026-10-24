@@ -17,6 +17,8 @@ resource "azurerm_user_assigned_identity" "this" {
 #
 # Whoever applies needs to be able to create role assignments at subscription
 # scope (Owner or User Access Administrator) on every target subscription.
+# cd-terraform's identity is only Contributor on rg-sectest-dev, so a change
+# here (a new target subscription) must be applied locally with `make apply`.
 resource "azurerm_role_assignment" "identity_reader" {
   for_each = toset(local.target_subscription_ids)
 

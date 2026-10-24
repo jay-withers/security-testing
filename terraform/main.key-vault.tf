@@ -50,10 +50,12 @@ resource "azurerm_role_assignment" "identity_secrets_user" {
   principal_type = "ServicePrincipal"
 }
 
-# So whoever applies can set the two secrets. No `azurerm_key_vault_secret`:
-# a secret value belongs in neither source nor state.
+# So the administrator can set the two secrets. No `azurerm_key_vault_secret`:
+# a secret value belongs in neither source nor state. Not "whoever applies":
+# cd-terraform applies as the pipeline identity, which would move this grant
+# to itself on every run, and cannot write role assignments.
 resource "azurerm_role_assignment" "deployer_secrets_officer" {
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
+  principal_id         = var.administrator_object_id
 }
