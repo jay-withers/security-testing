@@ -179,6 +179,14 @@ Terraform never sets the real image. It creates both jobs on a placeholder
 image, on both jobs at once. Everything else in the jobs, including the target
 subscriptions, the threshold and the schedules, is still Terraform's.
 
+**Releases deploy themselves.** When a merge publishes a new image,
+`cd-publish`'s `deploy` job runs this same `make deploy IMAGE_TAG=<release>`
+against dev, through the shared `container-apps-deploy.yml` (OIDC in the `dev`
+GitHub environment). To redeploy an existing tag — after a failed deploy, or an
+apply that recreated a workload — run `cd-publish` from the Actions tab with
+that tag. Running `make deploy` by hand is for anything else, such as a
+rollback.
+
 **Run `make deploy` again after any apply that recreates a job.** Switching
 a job between scheduled and manual replaces it, for example (a new cron
 expression updates in place). The new job comes back on
