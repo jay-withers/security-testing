@@ -12,7 +12,7 @@
 # Builder and runtime both derive from `base`, so the virtualenv is built by the
 # same interpreter (bookworm's python3, 3.11) that runs it — a venv is bound to
 # the exact minor version that created it.
-FROM zaproxy/zap-stable:2.17.0@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2 AS base
+FROM zaproxy/zap-stable:2.17.0@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 AS base
 
 
 FROM base AS builder
