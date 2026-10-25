@@ -547,7 +547,23 @@ def main() -> int:
 
 
 def cli() -> None:
-    """Console-script entry point (`sectest`), which the image's ENTRYPOINT names."""
+    """Console-script entry point (`sectest`), which the image's ENTRYPOINT names.
+
+    No arguments runs the scan SCAN_PROFILE selects, as every scheduled run
+    does. `sectest selfcheck` is what `make smoke` runs after a deploy instead
+    (selfcheck.py); anything else is refused rather than read as a scan.
+    """
+    args = sys.argv[1:]
+    if args == ["selfcheck"]:
+        import logging
+
+        from . import selfcheck
+
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stdout)
+        sys.exit(selfcheck.run())
+    if args:
+        print(f"usage: sectest [selfcheck] (got {' '.join(args)!r})", file=sys.stderr)
+        sys.exit(2)
     sys.exit(main())
 
 

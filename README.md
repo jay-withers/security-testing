@@ -190,9 +190,9 @@ rollback.
 **Every deploy is checked, and a failed one rolls back.** Before deploying,
 the workflow records `make deployed-tag` (the tag on the job now). After it,
 `make smoke` (`scripts/smoke.sh`) checks that both scanner jobs are configured with the new
-tag. A job is never started for this, since a run has side effects, so a
-broken image still surfaces at its next scheduled run. If the deploy or the
-check fails, the workflow redeploys the recorded tag and fails the run, so a
+tag, then starts one run of each with its args swapped for `sectest selfcheck`,
+which checks the settings, secrets and storage a real run needs and does
+nothing else, and waits for it to succeed. If the deploy or the check fails, the workflow redeploys the recorded tag and fails the run, so a
 `deploy-failed` issue says whether the job is back on the old version.
 
 **Run `make deploy` again after any apply that recreates a job.** Switching
