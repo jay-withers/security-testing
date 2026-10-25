@@ -187,6 +187,14 @@ apply that recreated a workload — run `cd-publish` from the Actions tab with
 that tag. Running `make deploy` by hand is for anything else, such as a
 rollback.
 
+**Every deploy is checked, and a failed one rolls back.** Before deploying,
+the workflow records `make deployed-tag` (the tag on the job now). After it,
+`make smoke` (`scripts/smoke.sh`) checks that both scanner jobs are configured with the new
+tag. A job is never started for this, since a run has side effects, so a
+broken image still surfaces at its next scheduled run. If the deploy or the
+check fails, the workflow redeploys the recorded tag and fails the run, so a
+`deploy-failed` issue says whether the job is back on the old version.
+
 **Run `make deploy` again after any apply that recreates a job.** Switching
 a job between scheduled and manual replaces it, for example (a new cron
 expression updates in place). The new job comes back on
