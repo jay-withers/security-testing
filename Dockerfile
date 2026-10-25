@@ -54,10 +54,37 @@ LABEL org.opencontainers.image.source="https://github.com/jay-withers/security-t
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# The packaged scans refuse to write reports unless /zap/wrk exists — they
-# expect it to be a bind mount, and the image does not create it. No root
-# needed: the base image hands /zap to its `zap` user, which is still current.
-RUN mkdir -p /zap/wrk
+# Patch the vendor image in one root layer, because Trivy fails a build on
+# fixable HIGH/CRITICAL findings and the ZAP image ships them between its own
+# releases:
+#
+# - apt-get upgrade: Debian bookworm packages with published fixes (firefox-esr,
+#   jq, libexpat1, libbrotli1, linux-libc-dev were the first).
+# - /zap/webswing goes: it is ZAP's in-browser desktop GUI and carries its own
+#   Jetty (CVEs in jetty-http/-server/-security). The packaged headless scans
+#   (zap-baseline.py, zap-full-scan.py) never start it.
+# - certifi and urllib3 are upgraded in the system Python, which the zap-*.py
+#   scripts run under for their `zaproxy` client; then pip itself goes, since it
+#   vendors stale copies of both (plus msgpack and setuptools' pkg_resources)
+#   and nothing at runtime installs anything. Removed through apt if Debian
+#   installed it, through pip otherwise.
+# - The packaged scans refuse to write reports unless /zap/wrk exists — they
+#   expect a bind mount, and the image does not create it. Created here as root,
+#   so it is handed to uid 1000 explicitly.
+USER 0
+# hadolint ignore=DL3008,DL3013
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /zap/webswing \
+    && python3 -m pip install --no-cache-dir --break-system-packages --upgrade certifi urllib3 \
+    && if dpkg -s python3-pip >/dev/null 2>&1; then \
+         apt-get purge -y python3-pip; \
+       else \
+         python3 -m pip uninstall -y --break-system-packages pip; \
+       fi \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /zap/wrk \
+    && chown 1000:1000 /zap/wrk
 
 COPY --from=builder --chown=1000:1000 /app/.venv /app/.venv
 
