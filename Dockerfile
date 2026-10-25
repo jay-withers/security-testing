@@ -66,8 +66,9 @@ ENV PYTHONUNBUFFERED=1 \
 # - certifi and urllib3 are upgraded in the system Python, which the zap-*.py
 #   scripts run under for their `zaproxy` client; then pip itself goes, since it
 #   vendors stale copies of both (plus msgpack and setuptools' pkg_resources)
-#   and nothing at runtime installs anything. Removed through apt if Debian
-#   installed it, through pip otherwise.
+#   and nothing at runtime installs anything. The image carries Debian's
+#   python3-pip and a newer pip in /usr/local, so both go: apt for the one,
+#   then pip uninstall until no pip answers.
 # - The packaged scans refuse to write reports unless /zap/wrk exists — they
 #   expect a bind mount, and the image does not create it. Created here as root,
 #   so it is handed to uid 1000 explicitly.
@@ -77,11 +78,10 @@ RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /zap/webswing \
     && python3 -m pip install --no-cache-dir --break-system-packages --upgrade certifi urllib3 \
-    && if dpkg -s python3-pip >/dev/null 2>&1; then \
-         apt-get purge -y python3-pip; \
-       else \
-         python3 -m pip uninstall -y --break-system-packages pip; \
-       fi \
+    && if dpkg -s python3-pip >/dev/null 2>&1; then apt-get purge -y python3-pip; fi \
+    && while python3 -m pip --version >/dev/null 2>&1; do \
+         python3 -m pip uninstall -y --break-system-packages pip || exit 1; \
+       done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /zap/wrk \
     && chown 1000:1000 /zap/wrk
