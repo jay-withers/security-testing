@@ -73,6 +73,12 @@ ENV PYTHONUNBUFFERED=1 \
 #   expect a bind mount, and the image does not create it. Created here as root,
 #   so it is handed to uid 1000 explicitly.
 USER 0
+#
+# OS_PATCH_DATE is today's date, passed by jay-withers/workflows' docker.yml.
+# The CI build caches layers by instruction, so declaring it here makes this
+# layer re-run once a day; without it the upgrade was reused from whenever the
+# layer was first cached, and fixes published since never got in.
+ARG OS_PATCH_DATE
 # hadolint ignore=DL3008,DL3013
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
