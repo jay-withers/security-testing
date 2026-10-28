@@ -5,14 +5,16 @@ locals {
 
   # **A placeholder, not the scanner.** Terraform only needs an image to create
   # the job; `make deploy IMAGE_TAG=vX.Y.Z` puts the real one on, and the image
-  # is under `ignore_changes`, so Terraform never touches it again. Microsoft's
-  # quickstart job image prints a line and exits 0.
+  # is under `ignore_changes`, so Terraform never touches it again.
+  # dev-containers' placeholder exits 0 at once inside a job; every app here is
+  # created on it. `latest` because dev-containers prunes all but its last ten
+  # releases and never `latest`, and only a create ever pulls it.
   #
   # **Run `make deploy` after any apply that creates or replaces the job** — the
   # first apply, and any change to a ForceNew argument such as a job's trigger
   # type (scheduled or manual; a new cron expression is in place). A replaced job comes back on this placeholder, and
   # because it exits 0 nothing alerts: runs "succeed" and no scan happens.
-  placeholder_image = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
+  placeholder_image = "ghcr.io/jay-withers/dev-containers/placeholder:latest"
 
   container_cpu    = 1
   container_memory = "2Gi"
