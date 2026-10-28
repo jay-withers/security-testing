@@ -174,7 +174,7 @@ make plan / make apply         # ENV=dev by default
 ```
 
 Terraform never sets the real image. It creates both jobs on a placeholder
-(`mcr.microsoft.com/k8se/quickstart-jobs`), the image is under
+(dev-containers' `placeholder`, which exits 0 in a job), the image is under
 `ignore_changes`, and `make deploy` is the only thing that sets the scanner
 image, on both jobs at once. Everything else in the jobs, including the target
 subscriptions, the threshold and the schedules, is still Terraform's.
