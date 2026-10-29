@@ -14,8 +14,8 @@
 # first one's alert already firing.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "findings" {
   name                = "alert-${var.project_name}-${var.environment}-findings"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  location            = data.azurerm_resource_group.this.location
   description         = "The weekly passive DAST scan found alerts at or above ${var.scan_fail_on} risk on a container app. The report path is in the alert payload."
   severity            = 2
 
