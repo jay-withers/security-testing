@@ -28,3 +28,10 @@ data "azurerm_monitor_action_group" "platform" {
   name                = var.platform_action_group_name
   resource_group_name = var.platform_resource_group_name
 }
+
+# This project's resource group, created by github-repos along with the
+# pipeline identity's grants on it. Same name the naming module always gave
+# it; github-repos puts it in the shared environment's region.
+data "azurerm_resource_group" "this" {
+  name = module.naming.resource_group.name
+}

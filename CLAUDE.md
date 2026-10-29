@@ -46,9 +46,9 @@ repo's conventions when in doubt.
 
 - The environment, workspace and action group are resolved **by name** in
   `terraform/data.tf` (`rg-platform-dev`, `cae-platform-dev`,
-  `log-platform-dev`, `mag-platform-dev`). The resource group takes its
-  location from the environment, because a job must be in its environment's
-  region.
+  `log-platform-dev`, `mag-platform-dev`). The resource group is
+  github-repos' (`create_resource_groups`), read here by data source; it sits
+  in the environment's region, because a job must.
 - Job names come from `module.naming_scanner` (`caj-<project>-<env>-zap`,
   passive) and `module.naming_scanner_active` (`…-zapfull`, active). They're
   `for_each` over `local.scan_profiles`, and a `moved` block keeps the
@@ -117,5 +117,5 @@ Commits must follow [Conventional Commits](https://www.conventionalcommits.org/)
 - **ci-python**: pytest on Python 3.11 (matches the ZAP image), via the shared `python.yml`.
 - **ci-container-build**: builds the image without pushing. A `changes` job path-filters the build rather than the trigger, so the always-reporting `container-build` gate can be (and is) a required check.
 - **ci-terraform**: `validate` via the shared `terraform.yml` (`terraform / Terraform`), then a dev plan via the shared `terraform-deploy.yml`, commented on the PR, behind the always-reporting `terraform-plan` gate. `terraform-deploy.yml` runs in the `dev` GitHub environment, where `github-repos` sets `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` and federates this repo's OIDC identity to `<repo prefix>:environment:dev`; callers pass no credentials. Only dev is planned: it is the only platform environment with an identity.
-- **cd-terraform**: plans dev on every merge to `main` that touches Terraform, through the same `terraform-deploy.yml`, and **applies only when run by hand** (Actions → Run workflow). A merge whose plan has changes opens a `terraform-pending` issue (emailed, and listed in repo-agent's weekly digest); the manual run applies exactly the plan it prints and closes it. Apply that way rather than with a local `make apply`. The pipeline identity is only Contributor on `rg-sectest-dev`, so a change that adds or replaces a role assignment fails there and needs a local `make apply`. Key Vault and reports access go to `administrator_object_id` in `environments/dev.tfvars`, never to "whoever applies", or every pipeline run would try to move them to itself. The scanner identity's subscription-scope Reader grants (`main.identity.tf`) are role assignments too.
+- **cd-terraform**: plans dev on every merge to `main` that touches Terraform, through the same `terraform-deploy.yml`, and **applies only when run by hand** (Actions → Run workflow). A merge whose plan has changes opens a `terraform-pending` issue (emailed, and listed in repo-agent's weekly digest); the manual run applies exactly the plan it prints and closes it. Apply that way rather than with a local `make apply`. The pipeline identity is Contributor and conditioned RBAC Administrator on `rg-sectest-dev`, both granted by github-repos, which also owns the group, so role assignments inside the group apply here too; one outside it needs a local `make apply`. Key Vault and reports access go to `administrator_object_id` in `environments/dev.tfvars`, never to "whoever applies", or every pipeline run would try to move them to itself. The scanner identity's subscription-scope Reader grants (`main.identity.tf`) are outside the group, so changing them is still a local apply.
 - **cd-tag** → **cd-publish**: semver tag on merge, then the GHCR publish when image sources changed.
