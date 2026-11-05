@@ -29,7 +29,11 @@ repo's conventions when in doubt.
   raises, so it can't change the job's exit code.
 - `src/sectest/scan.py`: the whole scanner. It has pure functions
   (`select_targets`, `build_command`, `count_risks`, `exceeds_threshold`) that
-  `tests/` covers, plus the Azure/ZAP glue in `main()`. The console script
+  `tests/test_scan.py` covers, plus the Azure/ZAP glue. `tests/test_runner.py`
+  covers the glue that decides whether a scan counts (`run_scan`'s
+  completed/error/timeout, `stop_process_group` against real processes,
+  `discover_targets`' paging, `upload_reports`), faked at `subprocess.Popen`
+  and the Azure clients; `main()` itself is untested. The console script
   `sectest` is the image's ENTRYPOINT.
 - `Dockerfile`: `FROM zaproxy/zap-stable` (bookworm, Python 3.11, uid 1000),
   with the package installed into `/app/.venv` by uv. **The venv must stay off

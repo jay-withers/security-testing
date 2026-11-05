@@ -257,6 +257,60 @@ def test_environment_wins_over_the_vault(monkeypatch):
     assert mailer.get_secret("RESEND-API-KEY", None) is None
 
 
+@pytest.fixture
+def vault(monkeypatch):
+    """A fake Key Vault behind `SecretClient`: name -> value, a missing name raising NotFound."""
+    from types import SimpleNamespace
+
+    import azure.keyvault.secrets
+
+    stored: dict[str, str] = {}
+
+    class _Client:
+        def __init__(self, vault_url, credential):
+            assert vault_url == "https://kv.example.vault.azure.net/"
+
+        def get_secret(self, name):
+            if name not in stored:
+                raise ResourceNotFoundError(f"{name} not found")
+            return SimpleNamespace(value=stored[name])
+
+    monkeypatch.delenv("DIGEST_EMAIL_TO", raising=False)
+    monkeypatch.setenv("KEY_VAULT_URI", "https://kv.example.vault.azure.net/")
+    monkeypatch.setattr(azure.keyvault.secrets, "SecretClient", _Client)
+    return stored
+
+
+def test_the_vault_answers_when_the_environment_does_not(vault):
+    vault["DIGEST-EMAIL-TO"] = "me@example.com"
+    assert mailer.get_secret("DIGEST-EMAIL-TO", None) == "me@example.com"
+
+
+@pytest.mark.parametrize("stored", [{}, {"DIGEST-EMAIL-TO": ""}])
+def test_a_missing_or_empty_vault_secret_is_none(vault, stored):
+    """None is what makes `send` skip: the digest is switched on by setting the secret."""
+    vault.update(stored)
+    assert mailer.get_secret("DIGEST-EMAIL-TO", None) is None
+
+
+def test_a_rejected_post_carries_resends_explanation(monkeypatch):
+    """HTTPError's own message is only the status line; the reason is in the body."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    def refuse(request, timeout):
+        assert request.get_header("User-agent") == mailer.USER_AGENT
+        raise urllib.error.HTTPError(
+            request.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"message": "domain is not verified"}')
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+
+    with pytest.raises(RuntimeError, match=r'HTTP 403: \{"message": "domain is not verified"\}'):
+        mailer._post(mailer.RESEND_ENDPOINT, {}, {"User-Agent": mailer.USER_AGENT})
+
+
 def test_a_failed_scan_carries_its_last_findings_into_the_open_counts():
     before = run("old", {"career": report(CSP, HSTS)})
     now = run("new", {"career": report()}, statuses={"career": "error"})
