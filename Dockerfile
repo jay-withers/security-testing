@@ -63,9 +63,15 @@ ENV PYTHONUNBUFFERED=1 \
 # - /zap/webswing goes: it is ZAP's in-browser desktop GUI and carries its own
 #   Jetty (CVEs in jetty-http/-server/-security). The packaged headless scans
 #   (zap-baseline.py, zap-full-scan.py) never start it.
-# - certifi, urllib3 and pyasn1 are upgraded in the system Python, which the zap-*.py
-#   scripts run under for their `zaproxy` client; then pip itself goes, since it
-#   vendors stale copies of both (plus msgpack and setuptools' pkg_resources)
+# - Every pip-installed package in the system Python (/usr/local, where the
+#   image put the `zaproxy` client the zap-*.py scripts run under, plus awscli,
+#   requests, pyasn1, rsa and their dependencies) is upgraded in one resolve,
+#   which keeps each package's own pins, and `pip check` fails the build if the
+#   result is inconsistent. All of them, not a named list: the list (certifi,
+#   urllib3, then pyasn1) only ever grew after a CVE had already failed the
+#   gate on every open PR. Debian's own /usr/lib/python3 packages are apt's,
+#   covered by the upgrade above. Then pip itself goes, since it vendors stale
+#   copies of certifi and urllib3 (plus msgpack and setuptools' pkg_resources)
 #   and nothing at runtime installs anything. The image carries Debian's
 #   python3-pip and a newer pip in /usr/local, so both go: apt for the one,
 #   then pip uninstall until no pip answers.
@@ -83,7 +89,15 @@ ARG OS_PATCH_DATE
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /zap/webswing \
-    && python3 -m pip install --no-cache-dir --break-system-packages --upgrade certifi urllib3 pyasn1 \
+    && site="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
+    && python3 -m pip list --path "$site" --format=freeze --exclude pip \
+         > /tmp/system-python.txt \
+    && sed -i 's/==.*//' /tmp/system-python.txt \
+    && test -s /tmp/system-python.txt \
+    && python3 -m pip install --no-cache-dir --break-system-packages --upgrade \
+         -r /tmp/system-python.txt \
+    && python3 -m pip check \
+    && rm /tmp/system-python.txt \
     && if dpkg -s python3-pip >/dev/null 2>&1; then apt-get purge -y python3-pip; fi \
     && while python3 -m pip --version >/dev/null 2>&1; do \
          python3 -m pip uninstall -y --break-system-packages pip || exit 1; \
