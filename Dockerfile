@@ -63,7 +63,7 @@ ENV PYTHONUNBUFFERED=1 \
 # - /zap/webswing goes: it is ZAP's in-browser desktop GUI and carries its own
 #   Jetty (CVEs in jetty-http/-server/-security). The packaged headless scans
 #   (zap-baseline.py, zap-full-scan.py) never start it.
-# - certifi and urllib3 are upgraded in the system Python, which the zap-*.py
+# - certifi, urllib3 and pyasn1 are upgraded in the system Python, which the zap-*.py
 #   scripts run under for their `zaproxy` client; then pip itself goes, since it
 #   vendors stale copies of both (plus msgpack and setuptools' pkg_resources)
 #   and nothing at runtime installs anything. The image carries Debian's
@@ -83,7 +83,7 @@ ARG OS_PATCH_DATE
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /zap/webswing \
-    && python3 -m pip install --no-cache-dir --break-system-packages --upgrade certifi urllib3 \
+    && python3 -m pip install --no-cache-dir --break-system-packages --upgrade certifi urllib3 pyasn1 \
     && if dpkg -s python3-pip >/dev/null 2>&1; then apt-get purge -y python3-pip; fi \
     && while python3 -m pip --version >/dev/null 2>&1; do \
          python3 -m pip uninstall -y --break-system-packages pip || exit 1; \
