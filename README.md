@@ -162,6 +162,7 @@ Only scan apps you own, and follow Microsoft's
 ```bash
 make install    # pre-commit hooks + uv venv
 make test       # pytest — no Azure, no ZAP
+make typecheck  # mypy; CI runs it too
 make lint       # every pre-commit hook
 make build      # docker build for linux/amd64
 make deploy IMAGE_TAG=v0.2.0   # roll a released image onto both jobs

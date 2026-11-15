@@ -68,7 +68,12 @@ def zap(monkeypatch, workdir):
             return fake.exit_code
 
     monkeypatch.setattr(scan.subprocess, "Popen", _Popen)
-    monkeypatch.setattr(scan, "stop_process_group", lambda pgid, **kw: stopped.append((pgid, kw)) or False)
+
+    def fake_stop(pgid, **kw):
+        stopped.append((pgid, kw))
+        return False
+
+    monkeypatch.setattr(scan, "stop_process_group", fake_stop)
     fake.stopped = stopped
     return fake
 

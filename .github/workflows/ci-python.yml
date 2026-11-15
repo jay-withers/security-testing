@@ -1,7 +1,8 @@
 name: ci-python
 
-# Runs the test suite on a pull request, via the shared workflow so every repo
-# of ours gets the same job and a fix lands once.
+# Runs the test suite, mypy and the diff-coverage gate on a pull request, via
+# the shared workflow so every repo of ours gets the same job and a fix lands
+# once.
 on:
   pull_request:
     branches: [main]
@@ -22,10 +23,15 @@ jobs:
     #
     # Deliberately not path filtered: a required check skipped by a path filter
     # never reports, which blocks a pull request rather than passing it.
-    uses: jay-withers/workflows/.github/workflows/python.yml@1961dfbd65114641c5fcfd4677a7ca3f0668e513 # v1.26.1
+    uses: jay-withers/workflows/.github/workflows/python.yml@80eaaece845470ae15cb01af2cb859afcd01a66d # v1.28.0
     with:
       working-directory: .
       python-version: "3.11"
       extras: dev
       coverage: sectest
       coverage-pr-comment: true
+      # Total coverage is reported, never gated. diff-coverage gates only the lines
+      # a PR changes, where the cheap way to pass is to test the new code. A test
+      # that only asserts a mock still counts, so review the tests too.
+      diff-coverage: "80"
+      typecheck: mypy
