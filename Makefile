@@ -16,7 +16,7 @@ PROFILE ?= passive
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint test build push deploy deployed-tag smoke scan logs reports secrets init fmt validate plan apply
+.PHONY: help install lint test typecheck build push deploy deployed-tag smoke scan logs reports secrets init fmt validate plan apply
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -30,6 +30,9 @@ install: ## Install mise tools, pre-commit hooks and Python dependencies
 
 test: ## Run the test suite (no Azure, no ZAP)
 	uv run --extra dev pytest
+
+typecheck: ## Type-check src/ and tests/ with mypy (config in pyproject.toml)
+	uv run --extra dev mypy
 
 lint: ## Run every pre-commit hook against every file
 	pre-commit run --all-files

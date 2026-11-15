@@ -53,10 +53,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TypeVar, cast
 
 ZAP_WORK_DIR = Path("/zap/wrk")
 
@@ -290,9 +291,12 @@ def warm_up(
         sleep(WARM_UP_RETRY_SECONDS)
 
 
+R = TypeVar("R")
+
+
 def warm_ahead(
-    targets: list[Target], warm: Callable[[Target], tuple[bool, str]]
-) -> Iterator[tuple[Target, Future]]:
+    targets: list[Target], warm: Callable[[Target], R]
+) -> Generator[tuple[Target, Future[R]], None, None]:
     """Yield each target with its warm-up, starting the next one's early.
 
     Scans stay one at a time, but each app's cold start (~25s measured)
@@ -303,10 +307,13 @@ def warm_ahead(
     """
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warm-up")
     try:
-        upcoming = pool.submit(warm, targets[0]) if targets else None
+        if not targets:
+            return
+        upcoming = pool.submit(warm, targets[0])
         for i, target in enumerate(targets):
             current = upcoming
-            upcoming = pool.submit(warm, targets[i + 1]) if i + 1 < len(targets) else None
+            if i + 1 < len(targets):
+                upcoming = pool.submit(warm, targets[i + 1])
             yield target, current
     finally:
         # Not a `with` block, which would wait out an in-flight warm-up (up to
@@ -334,7 +341,7 @@ def _timed_warm_up(target: Target) -> tuple[bool, str, float]:
 
 def scan_target(
     target: Target,
-    warming: Future,
+    warming: Future[tuple[bool, str, float]],
     spider_minutes: int,
     timeout: int,
     scan: Callable[..., ScanResult] | None = None,
@@ -435,7 +442,8 @@ def discover_targets(credential, subscription_ids: list[str]) -> list[dict]:
                 options=QueryRequestOptions(skip_token=skip_token, result_format="objectArray"),
             )
         )
-        rows.extend(response.data)
+        # objectArray: a list of row dicts, though the SDK types it as one mapping.
+        rows.extend(cast(list[dict], response.data))
         skip_token = response.skip_token
         if not skip_token:
             return rows
@@ -465,7 +473,7 @@ def upload_reports(container_client, run_prefix: str, result: ScanResult) -> Non
         result.report_prefix = prefix
 
 
-def main() -> int:
+def main() -> int:  # pragma: no cover - the wiring, untested on purpose (CLAUDE.md)
     from azure.identity import DefaultAzureCredential
     from azure.storage.blob import ContainerClient
 

@@ -1,6 +1,8 @@
 """Unit tests for the digest and the mailer — no Azure, no Resend."""
 
 import json
+from email.message import Message
+from typing import Any
 
 import pytest
 from azure.core.exceptions import ResourceNotFoundError
@@ -175,7 +177,7 @@ def test_send_digest_compares_with_the_previous_run_and_logs(monkeypatch, capsys
         "run/career/report.json": report(CSP),
         "2026-10-19/060000Z-passive/summary.json": summary(result("career")),
     }
-    sent = {}
+    sent: dict[str, Any] = {}
 
     def fake_send(subject, html, text, sender, credential):
         sent.update(subject=subject, sender=sender)
@@ -302,7 +304,11 @@ def test_a_rejected_post_carries_resends_explanation(monkeypatch):
     def refuse(request, timeout):
         assert request.get_header("User-agent") == mailer.USER_AGENT
         raise urllib.error.HTTPError(
-            request.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"message": "domain is not verified"}')
+            request.full_url,
+            403,
+            "Forbidden",
+            Message(),
+            io.BytesIO(b'{"message": "domain is not verified"}'),
         )
 
     monkeypatch.setattr(urllib.request, "urlopen", refuse)
@@ -391,7 +397,11 @@ def test_resend_rejection_body_is_kept(monkeypatch):
 
     def reject(*_a, **_k):
         raise urllib.error.HTTPError(
-            mailer.RESEND_ENDPOINT, 403, "Forbidden", {}, io.BytesIO(b'{"message":"domain not verified"}')
+            mailer.RESEND_ENDPOINT,
+            403,
+            "Forbidden",
+            Message(),
+            io.BytesIO(b'{"message":"domain not verified"}'),
         )
 
     monkeypatch.setattr(mailer.urllib.request, "urlopen", reject)
@@ -405,6 +415,7 @@ def test_resend_rejection_body_is_kept(monkeypatch):
     )
 
     assert result.status == "failed"
+    assert result.error is not None
     assert "HTTP 403" in result.error
     assert "domain not verified" in result.error
 
@@ -445,7 +456,7 @@ def test_send_digest_for_an_active_run_ignores_passive_runs(monkeypatch, capsys)
         "run/career/report.json": report(CSP),
         "2026-10-15/202812Z-active/summary.json": summary(result("career")),
     }
-    sent = {}
+    sent: dict[str, Any] = {}
 
     def fake_send(subject, html, text, sender, credential):
         sent.update(subject=subject, text=text)

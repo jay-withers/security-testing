@@ -238,6 +238,12 @@ def subject(d: Digest) -> str:
     return f"{head}: {len(d.new)} new, {len(d.resolved)} resolved, {open_part} open"
 
 
+def _previous_by_risk(d: Digest, app_id: str) -> dict[str, int | None]:
+    """Each risk's previous count, or None throughout when there's nothing to compare."""
+    before = d.previous_counts(app_id)
+    return {r: None if before is None else before[r] for r in REPORTED_RISKS}
+
+
 def _delta(now: int, before: int | None) -> str:
     if before is None or now == before:
         return ""
@@ -256,8 +262,8 @@ def render_text(d: Digest) -> str:
     lines.append("")
     lines.append("Open by app (High / Medium / Low):")
     for app_id in d.app_rows():
-        now, before = d.open_counts(app_id), d.previous_counts(app_id)
-        cells = " / ".join(f"{now[r]}{_delta(now[r], before and before[r])}" for r in REPORTED_RISKS)
+        now, was = d.open_counts(app_id), _previous_by_risk(d, app_id)
+        cells = " / ".join(f"{now[r]}{_delta(now[r], was[r])}" for r in REPORTED_RISKS)
         note = d.row_note(app_id)
         lines.append(f"  {d.current.names[app_id]}: {cells}" + (f"  [{note}]" if note else ""))
     if d.profile == "active":
@@ -291,10 +297,9 @@ def render_html(d: Digest) -> str:
     )
     rows = []
     for app_id in d.app_rows():
-        now, before = d.open_counts(app_id), d.previous_counts(app_id)
+        now, was = d.open_counts(app_id), _previous_by_risk(d, app_id)
         nums = "".join(
-            f"<td {cell.format('right')}>{now[r]}{e(_delta(now[r], before and before[r]))}</td>"
-            for r in REPORTED_RISKS
+            f"<td {cell.format('right')}>{now[r]}{e(_delta(now[r], was[r]))}</td>" for r in REPORTED_RISKS
         )
         note = d.row_note(app_id)
         label = e(d.current.names[app_id]) + (

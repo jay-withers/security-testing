@@ -305,7 +305,7 @@ def test_scan_target_passes_the_fresh_warm_up_to_the_scan():
     from concurrent.futures import Future
 
     target = scan.select_targets([row()])[0][0]
-    early = Future()
+    early: Future[tuple[bool, str, float]] = Future()
     early.set_result((True, "HTTP 200", 1.0))
     seen = {}
 

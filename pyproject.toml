@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1", "ruff>=0.8"]
+dev = ["pytest>=9.1", "ruff>=0.8", "mypy>=2.4.1"]
 
 # What the Dockerfile's ENTRYPOINT resolves to. Terraform sets no `command`, so
 # this name lives in exactly one place.
@@ -43,6 +43,17 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF", "S"]
 # S607). Everything else under "S" still applies to tests.
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S104", "S105", "S106", "S603", "S607"]
+
+[tool.mypy]
+# `make typecheck` and CI's `typecheck: mypy` both read this. Tests too, so a
+# changed signature can't leave a stale call behind in them. check_untyped_defs
+# so a function without annotations is still checked inside. No pydantic
+# plugin: this project doesn't use pydantic.
+files = ["src", "tests"]
+# The ZAP image's interpreter, whatever runs mypy locally.
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
