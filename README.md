@@ -139,16 +139,20 @@ Only scan apps you own, and follow Microsoft's
 
 ## First deployment
 
-1. Create the state container `security-testing` in `sttfsharedjw`
-   (`rg-tfstate-shared`). The shared state account is created once by hand,
-   and each repo's container must exist before the first `init`.
+1. Make sure github-repos has applied this repo's `state_consumers` entry.
+   That creates the state container `security-testing` in `sttfsharedjw`,
+   the resource group `rg-sectest-dev`, the pipeline's OIDC identity and the
+   `dev` GitHub environment's variables.
 2. Make sure the platform is applied (`rg-platform-dev`, `cae-platform-dev`,
    `log-platform-dev`, `mag-platform-dev`). The data sources fail at plan time
    otherwise.
-3. Run `make plan`, then `make apply`. Whoever applies needs Owner or User
-   Access Administrator on every target subscription, because the scanner's
-   identity is granted Reader there. The job is created on a **placeholder
-   image** that does nothing.
+3. Run `make plan`, then `make apply` locally. Whoever applies needs Owner or
+   User Access Administrator on every target subscription, because the
+   scanner's identity is granted Reader there, which the pipeline's identity
+   can't grant. The jobs are created on a **placeholder image** that does
+   nothing. After that, Terraform changes go through `cd-terraform` (below),
+   except a change to the target subscriptions, which is applied locally the
+   same way.
 4. Let `cd-tag` publish an image (or `make build push`), then
    `make deploy IMAGE_TAG=vX.Y.Z` to put the scanner on both jobs.
 5. Set the digest's secrets with the commands `make secrets` prints.
@@ -160,7 +164,7 @@ Only scan apps you own, and follow Microsoft's
 ## Commands
 
 ```bash
-make install    # pre-commit hooks + uv venv
+make install    # mise tools, pre-commit hooks and the uv venv
 make test       # pytest — no Azure, no ZAP
 make typecheck  # mypy; CI runs it too
 make lint       # every pre-commit hook
@@ -171,7 +175,12 @@ make scan PROFILE=active       # start an active (attack) run now
 make logs       # the latest passive run's log lines (PROFILE=active for the other)
 make reports    # the latest run summaries in Blob Storage
 make secrets    # print the az commands that set the digest's secrets
-make plan / make apply         # ENV=dev by default
+make deployed-tag              # the image tag live on the passive job
+make smoke IMAGE_TAG=v0.2.0    # check both jobs carry the tag, and selfcheck each
+make push                      # push a locally built image (needs write:packages)
+make validate                  # terraform init -backend=false + validate
+make fmt                       # terraform fmt -recursive
+make plan / make apply         # ENV=dev by default; apply is for the cases above
 ```
 
 Terraform never sets the real image. It creates both jobs on a placeholder
@@ -202,6 +211,31 @@ expression updates in place). The new job comes back on
 the placeholder, which exits 0, so no alert fires: runs "succeed" and nothing
 is scanned. If `make reports` shows no new runs, check this first.
 
+## CI/CD
+
+Every workflow calls a shared one in
+[jay-withers/workflows](https://github.com/jay-withers/workflows), pinned by
+SHA.
+
+- **ci-pre-commit**, **ci-python** (pytest, mypy and the Python checks) and
+  **ci-container-build** (build plus Trivy) on PRs, plus **ci-terraform**:
+  credential-free validate, then a real plan of dev commented on the PR.
+- **ci-codeql**: CodeQL code scanning of the workflows.
+- **cd-tag** tags a release on every merge to `main` and calls **cd-publish**,
+  which publishes `ghcr.io/jay-withers/security-testing/sectest` and deploys
+  it, as above.
+- **cd-terraform** plans dev on merges touching Terraform and opens a
+  `terraform-pending` issue; **Actions → cd-terraform → Run workflow**
+  applies it. Its identity holds Contributor and conditioned RBAC
+  Administrator on `rg-sectest-dev` only, so a role assignment anywhere else
+  (the Reader grants on target subscriptions) fails there and needs a local
+  `make apply`.
+- **schedule-drift** plans dev nightly and records drift in the platform's
+  `OpsEvents_CL` table. **manual-terraform-unlock** releases a stuck state
+  lock.
+
+## Reports
+
 Reports are only readable with Entra auth (shared keys are disabled):
 
 ```bash
@@ -218,6 +252,8 @@ pyproject.toml / uv.lock   # the scanner package
 src/sectest/scan.py        # discovery, scan dispatch, report upload
 src/sectest/digest.py      # each run's digest: compare, render, send
 src/sectest/mailer.py      # Resend, with secrets from Key Vault
+src/sectest/selfcheck.py   # the post-deploy check: settings, secrets, storage
+scripts/smoke.sh           # make smoke (shared verbatim with the other apps)
 tests/                     # pytest, pure functions only
 terraform/
   data.tf                  # the shared platform, resolved by name
@@ -230,6 +266,7 @@ terraform/
   backends/dev.hcl         # partial backend config
   environments/dev.tfvars
 .github/workflows/
-  ci-python.yml  ci-container-build.yml  ci-terraform.yml  ci-pre-commit.yml
+  ci-python.yml  ci-container-build.yml  ci-terraform.yml  ci-pre-commit.yml  ci-codeql.yml
   cd-tag.yml  cd-publish.yml   # release → publish ghcr.io/jay-withers/security-testing/sectest
+  cd-terraform.yml  schedule-drift.yml  manual-terraform-unlock.yml
 ```
