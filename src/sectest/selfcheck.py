@@ -1,6 +1,6 @@
 """`sectest selfcheck`: prove a scanner job's container could do a real run, and do nothing.
 
-After every deploy, `make smoke` (scripts/smoke.sh) starts one run of each
+After every deploy, `make smoke` (workflows' smoke.sh) starts one run of each
 scanner job with its args set to `selfcheck`. That run gets everything a real
 one does — the image, the managed identity, the env and Key Vault access — and
 checks what a scan needs before it starts: the configuration is valid, the ZAP
