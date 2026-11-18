@@ -199,7 +199,8 @@ rollback.
 
 **Every deploy is checked, and a failed one rolls back.** Before deploying,
 the workflow records `make deployed-tag` (the tag on the job now). After it,
-`make smoke` (`scripts/smoke.sh`) checks that both scanner jobs are configured with the new
+`make smoke` (jay-withers/workflows' `scripts/smoke.sh`, fetched at the commit
+cd-publish pins) checks that both scanner jobs are configured with the new
 tag, then starts one run of each with its args swapped for `sectest selfcheck`,
 which checks the settings, secrets and storage a real run needs and does
 nothing else, and waits for it to succeed. If the deploy or the check fails, the workflow redeploys the recorded tag and fails the run, so a
@@ -253,7 +254,6 @@ src/sectest/scan.py        # discovery, scan dispatch, report upload
 src/sectest/digest.py      # each run's digest: compare, render, send
 src/sectest/mailer.py      # Resend, with secrets from Key Vault
 src/sectest/selfcheck.py   # the post-deploy check: settings, secrets, storage
-scripts/smoke.sh           # make smoke (shared verbatim with the other apps)
 tests/                     # pytest, pure functions only
 terraform/
   data.tf                  # the shared platform, resolved by name
