@@ -27,6 +27,12 @@ repo's conventions when in doubt.
   with its own earlier runs, and an active digest lists every open finding. It
   compares only apps scanned in both runs, so a failed scan never reads as resolved, and it never
   raises, so it can't change the job's exit code.
+- `src/sectest/accepted.py`: findings accepted as risks, by ZAP `alertRef`
+  and app (or `*`), each with a reason pointing at where the decision is
+  written. The digest sets them aside as it reads every run, so they are
+  never open, new or resolved, and lists them under "Accepted" instead.
+  Only the digest reads it; the `over_threshold` alert counts every finding.
+  Removing an entry makes its findings read as new again.
 - `src/sectest/scan.py`: the whole scanner. It has pure functions
   (`select_targets`, `build_command`, `count_risks`, `exceeds_threshold`) that
   `tests/test_scan.py` covers, plus the Azure/ZAP glue. `tests/test_runner.py`

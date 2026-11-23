@@ -8,6 +8,7 @@ import pytest
 from azure.core.exceptions import ResourceNotFoundError
 
 from sectest import digest, mailer
+from sectest.accepted import Accepted, accepted
 
 
 def alert(ref, name, riskcode):
@@ -191,6 +192,7 @@ def test_send_digest_compares_with_the_previous_run_and_logs(monkeypatch, capsys
     assert line["event"] == "digest"
     assert line["status"] == "sent"
     assert line["previous"] == "2026-10-12/060000Z-passive"
+    assert line["accepted"] == 0
     assert sent["sender"] == "Scans <s@example.com>"
 
 
@@ -471,3 +473,101 @@ def test_send_digest_for_an_active_run_ignores_passive_runs(monkeypatch, capsys)
     assert line["previous"] is None
     assert sent["subject"].startswith("Active security scan: first digest")
     assert "[Medium] career: Content Security Policy (CSP) Header Not Set" in sent["text"]
+
+
+# --- accepted findings ---------------------------------------------------------
+
+STYLE = alert("10055-6", "CSP: style-src unsafe-inline", 2)
+ACCEPT_STYLE = (Accepted(rule="10055-6", risk="Medium", reason="Deliberate, see health#70"),)
+
+
+def accepting(prefix, reports, entries=ACCEPT_STYLE):
+    results = [result(n) for n in reports]
+    parsed = {f"/sub/rg/{n}": r for n, r in reports.items()}
+    return digest.build_run(prefix, summary(*results), parsed, entries)
+
+
+def test_an_accepted_finding_is_never_open_new_or_resolved():
+    before = accepting("old", {"health": report(CSP), "career": report()})
+    now = accepting("new", {"health": report(STYLE), "career": report(STYLE, HSTS)})
+
+    d = digest.compare(now, [before])
+
+    assert {f.name for f in d.all_open()} == {HSTS["name"]}
+    assert [f.name for f in d.new] == [HSTS["name"]]
+    assert [f.name for f in d.resolved] == [CSP["name"]]
+
+
+def test_accepting_a_finding_does_not_read_it_as_resolved():
+    """Both runs are read through the same list, so last week's copy is set aside too."""
+    before = accepting("old", {"health": report(STYLE, CSP)})
+    now = accepting("new", {"health": report(STYLE, CSP)})
+
+    d = digest.compare(now, [before])
+
+    assert d.new == [] and d.resolved == []
+
+
+def test_the_digest_lists_accepted_findings_with_their_reason_and_apps():
+    now = accepting("new", {"health": report(STYLE), "career": report(STYLE)})
+    d = digest.compare(now, [])
+
+    text = digest.render_text(d)
+    assert "Accepted, not counted (1):" in text
+    assert "[Medium] CSP: style-src unsafe-inline: career, health" in text
+    assert "Deliberate, see health#70" in text
+    page = digest.render_html(d)
+    assert "Accepted, not counted (1)" in page
+    assert "Deliberate, see health#70" in page
+
+
+def test_nothing_accepted_means_no_accepted_section():
+    d = digest.compare(accepting("new", {"health": report(CSP)}), [])
+    assert "Accepted" not in digest.render_text(d)
+    assert "Accepted" not in digest.render_html(d)
+
+
+def test_an_entry_for_one_app_leaves_the_others_open():
+    only_health = (Accepted(rule="10055-6", risk="Medium", reason="r", app="ca-health-dev"),)
+    now = accepting("new", {"ca-health-dev": report(STYLE), "ca-career-dev": report(STYLE)}, only_health)
+
+    open_apps = {f.app for f in digest.compare(now, []).all_open()}
+
+    assert open_apps == {"ca-career-dev"}
+
+
+def test_the_shipped_list_accepts_style_src_unsafe_inline_everywhere():
+    assert accepted("10055-6", "Medium", "ca-observability-dev") is not None
+    # The anti-CSRF finding is fixed, not accepted.
+    assert accepted("10202", "Medium", "ca-observability-dev") is None
+
+
+def test_the_same_rule_at_another_risk_is_still_reported():
+    high_style = alert("10055-6", "CSP: style-src unsafe-inline", 3)
+    d = digest.compare(accepting("new", {"health": report(high_style)}), [])
+
+    assert [(f.risk, f.name) for f in d.all_open()] == [("High", "CSP: style-src unsafe-inline")]
+    assert "Accepted" not in digest.render_text(d)
+
+
+def test_each_reason_names_only_the_apps_it_covers():
+    entries = (
+        Accepted(rule="10055-6", risk="Medium", reason="health's reason", app="ca-health-dev"),
+        Accepted(rule="10055-6", risk="Medium", reason="everyone else's reason"),
+    )
+    now = accepting("new", {"ca-health-dev": report(STYLE), "ca-career-dev": report(STYLE)}, entries)
+
+    text = digest.render_text(digest.compare(now, []))
+
+    assert "CSP: style-src unsafe-inline: ca-health-dev\n    health's reason" in text
+    assert "CSP: style-src unsafe-inline: ca-career-dev\n    everyone else's reason" in text
+
+
+def test_a_failed_scan_keeps_its_accepted_findings_listed():
+    before = accepting("old", {"health": report(STYLE, HSTS)})
+    now = digest.build_run("new", summary(result("health", "error", error="boom")), {}, ACCEPT_STYLE)
+
+    d = digest.compare(now, [before])
+
+    assert {f.name for f in d.all_open()} == {HSTS["name"]}
+    assert "[Medium] CSP: style-src unsafe-inline: health" in digest.render_text(d)
