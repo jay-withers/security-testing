@@ -11,7 +11,9 @@ attack results don't compare with a passive baseline.
 (falling back to `pluginid`), so one rule raising five instances is one
 finding, and a rule whose risk changes reads as one resolved and one new.
 Informational alerts are left out entirely; they are ZAP noting things, not
-problems.
+problems. **A finding `accepted.py` accepts is set aside** as each run is
+read, in this run and every earlier one alike, so it is never open, new or
+resolved; the digest lists it under "Accepted" with its reason instead.
 
 **Each app is compared with its own last completed scan**, which is usually
 the previous run but not always: a scan that failed last week would otherwise
@@ -34,6 +36,7 @@ import html
 import json
 from dataclasses import dataclass, field
 
+from .accepted import ACCEPTED, Accepted, accepted
 from .scan import RISK_NAMES, log
 
 REPORTED_RISKS = ("High", "Medium", "Low")
@@ -64,6 +67,9 @@ class Run:
     names: dict[str, str]
     errored: list[tuple[str, str]] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
+    # Completed apps' findings that accepted.py accepts, kept out of
+    # `findings`, each with the entry that accepts it.
+    accepted: dict[Finding, Accepted] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +84,8 @@ class Digest:
     baseline: dict[str, Run] = field(default_factory=dict)
     # Apps that errored this run, with their last completed scan's findings.
     carried: dict[str, set[Finding]] = field(default_factory=dict)
+    # And those scans' accepted findings, so they stay listed as accepted.
+    carried_accepted: dict[Finding, Accepted] = field(default_factory=dict)
     no_longer_scanned: list[str] = field(default_factory=list)
 
     def open_findings(self, app_id: str) -> set[Finding]:
@@ -104,6 +112,21 @@ class Digest:
     def app_rows(self) -> list[str]:
         """Apps with something to show, by name: completed this run, or carried."""
         return sorted({*self.current.findings, *self.carried}, key=lambda a: self.current.names[a])
+
+    def accepted_rows(self) -> list[tuple[Accepted, str, list[str]]]:
+        """Each accepted finding: its entry, its name and the apps raising it.
+
+        By entry, so each reason names only the apps it covers. An app whose
+        scan failed this run keeps its last scan's accepted findings here, as
+        its open ones are carried into the counts.
+        """
+        rows: dict[Accepted, tuple[str, set[str]]] = {}
+        for f, entry in (self.current.accepted | self.carried_accepted).items():
+            rows.setdefault(entry, (f"[{f.risk}] {f.name}", set()))[1].add(f.app)
+        return sorted(
+            ((entry, label, sorted(apps)) for entry, (label, apps) in rows.items()),
+            key=lambda r: (r[1], r[2]),
+        )
 
     def row_note(self, app_id: str) -> str:
         if app_id in self.carried:
@@ -158,12 +181,14 @@ def previous_prefix(blob_names: list[str], current: str) -> str | None:
     return earlier[-1] if earlier else None
 
 
-def build_run(prefix: str, summary: dict, reports: dict[str, dict]) -> Run:
+def build_run(
+    prefix: str, summary: dict, reports: dict[str, dict], entries: tuple[Accepted, ...] = ACCEPTED
+) -> Run:
     """A Run from a summary.json and the report.json of each completed target.
 
     `reports` maps a target's resource id to its parsed report; a completed
     target with no report is treated as errored, since nothing can be said
-    about it.
+    about it. Findings `entries` accepts go to `accepted`, not `findings`.
     """
     run = Run(prefix=prefix, started=summary.get("started", ""), findings={}, names={})
     for result in summary.get("results", []):
@@ -172,7 +197,12 @@ def build_run(prefix: str, summary: dict, reports: dict[str, dict]) -> Run:
         run.names[app_id] = name
         status = result.get("status")
         if status == "completed" and app_id in reports:
-            run.findings[app_id] = findings_from_report(app_id, name, reports[app_id])
+            run.findings[app_id] = set()
+            for f in findings_from_report(app_id, name, reports[app_id]):
+                if entry := accepted(f.rule, f.risk, name, entries):
+                    run.accepted[f] = entry
+                else:
+                    run.findings[app_id].add(f)
         elif status == "completed":
             run.errored.append((name, "report missing"))
         else:
@@ -188,6 +218,7 @@ def compare(current: Run, earlier: list[Run]) -> Digest:
     first_scans = []
     baseline: dict[str, Run] = {}
     carried: dict[str, set[Finding]] = {}
+    carried_accepted: dict[Finding, Accepted] = {}
     for app_id in current.names:
         before = next((r for r in earlier if app_id in r.findings), None)
         if before is not None:
@@ -195,6 +226,7 @@ def compare(current: Run, earlier: list[Run]) -> Digest:
         if app_id not in current.findings:
             if before is not None:
                 carried[app_id] = before.findings[app_id]
+                carried_accepted |= {f: e for f, e in before.accepted.items() if f.app_id == app_id}
         elif before is None:
             first_scans.append(current.names[app_id])
         else:
@@ -219,6 +251,7 @@ def compare(current: Run, earlier: list[Run]) -> Digest:
         sorted(first_scans),
         baseline=baseline,
         carried=carried,
+        carried_accepted=carried_accepted,
         no_longer_scanned=gone,
     )
 
@@ -273,6 +306,9 @@ def render_text(d: Digest) -> str:
     for title, items in (("New", d.new), ("Resolved", d.resolved)):
         lines += ["", f"{title} ({len(items)}):"]
         lines += [f"  [{f.risk}] {f.app}: {f.name}" for f in items] or ["  none"]
+    if rows := d.accepted_rows():
+        lines += ["", f"Accepted, not counted ({len(rows)}):"]
+        lines += [f"  {label}: {', '.join(apps)}\n    {entry.reason}" for entry, label, apps in rows]
     if d.first_scans:
         lines += ["", "First scan, not compared: " + ", ".join(d.first_scans)]
     if d.no_longer_scanned:
@@ -335,6 +371,13 @@ def render_html(d: Digest) -> str:
         f"<h3>Resolved ({len(d.resolved)})</h3>",
         finding_list(d.resolved),
     ]
+    if accepted_rows := d.accepted_rows():
+        lis = "".join(
+            f"<li>{e(label)}: {e(', '.join(apps))}<br>"
+            f'<span style="color:#667085">{e(entry.reason)}</span></li>'
+            for entry, label, apps in accepted_rows
+        )
+        parts.append(f"<h3>Accepted, not counted ({len(accepted_rows)})</h3><ul>{lis}</ul>")
     if d.first_scans:
         parts.append(f"<p>First scan, not compared: {e(', '.join(d.first_scans))}</p>")
     if d.no_longer_scanned:
@@ -410,6 +453,7 @@ def send_digest(container_client, credential, run_prefix: str, sender: str) -> N
             new=len(digest.new),
             resolved=len(digest.resolved),
             open=digest.total_open(),
+            accepted=len(current.accepted) + len(digest.carried_accepted),
             errored=len(current.errored),
         )
     except Exception as exc:

@@ -85,6 +85,10 @@ what changed since the previous passive run:
 - open High / Medium / Low findings per app, with the change from last time
 - **new** and **resolved** findings, where a finding is an app plus a ZAP rule
   plus its risk (Informational alerts are left out)
+- **accepted** findings, with their reason: risks taken on purpose, listed
+  in `src/sectest/accepted.py` by ZAP rule, risk and app. They are never
+  counted as open, new or resolved, so a decision doesn't read as news every
+  week. The findings alert still counts them.
 - scans that failed, and apps that were skipped
 
 An app whose scan failed has no findings marked resolved, and an app scanned
@@ -252,6 +256,7 @@ Dockerfile                 # FROM zaproxy/zap-stable + the sectest venv
 pyproject.toml / uv.lock   # the scanner package
 src/sectest/scan.py        # discovery, scan dispatch, report upload
 src/sectest/digest.py      # each run's digest: compare, render, send
+src/sectest/accepted.py    # findings accepted as risks, which the digest lists apart
 src/sectest/mailer.py      # Resend, with secrets from Key Vault
 src/sectest/selfcheck.py   # the post-deploy check: settings, secrets, storage
 tests/                     # pytest, pure functions only
