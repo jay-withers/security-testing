@@ -44,6 +44,7 @@ jobs:
               - 'uv.lock'
               # The accepted-risk list: changing it has to re-run the scan it changes.
               - '.trivyignore'
+              - 'mise.toml'
               - '.github/workflows/ci-container-build.yml'
 
   # Not itself the required check: container-build below is, because it
@@ -59,10 +60,10 @@ jobs:
       contents: read
       security-events: write # Trivy findings to code scanning
       issues: write # build-failed issue, outside pull requests
-    uses: jay-withers/workflows/.github/workflows/docker.yml@93bff29fb7e15a3669a1f120ab0c3a2940a413d6 # v1.34.0
+    uses: jay-withers/workflows/.github/workflows/docker.yml@ca86e90ed1f90f0afae1c2f2fc5a20c3a2115287 # v1.35.0
     with:
       images: |
-        [{"name": "sectest", "context": "."}]
+        [{"name": "sectest", "context": ".", "python": "python3"}]
       failure-issue: ${{ github.event_name != 'pull_request' }}
 
   # The required status check ("container-build"). Skipped counts as success,
