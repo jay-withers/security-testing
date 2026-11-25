@@ -10,7 +10,7 @@ jobs:
   tag:
     permissions:
       contents: write
-    uses: jay-withers/workflows/.github/workflows/release.yml@fa8accd07133582cba854b28f3eeddf7649d9685 # v1.31.6
+    uses: jay-withers/workflows/.github/workflows/release.yml@93bff29fb7e15a3669a1f120ab0c3a2940a413d6 # v1.34.0
 
   # Whether the image actually needs rebuilding. Diffed against the previous
   # *release tag*, not this push's own range, so an image change carried by a
