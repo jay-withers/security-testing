@@ -69,11 +69,16 @@ def _post(url: str, body: dict, headers: dict) -> dict:
     except urllib.error.HTTPError as exc:
         # Resend explains a rejection (an unverified sender, a bad key) in the
         # body; HTTPError's own message is only the status line. The body
-        # never echoes the key, so it is safe to log.
+        # never echoes the key, so it is safe to log. Closed once read: the
+        # error holds the response open, and Python 3.15 warns when the
+        # garbage collector is left to do it. close(), not `with`, which
+        # raises on an already-closed error and would lose the status here.
         try:
             detail = exc.read().decode(errors="replace")[:500]
         except Exception:
             detail = ""
+        finally:
+            exc.close()
         raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from None
 
 

@@ -397,14 +397,10 @@ def test_resend_rejection_body_is_kept(monkeypatch):
     import io
     import urllib.error
 
+    body = io.BytesIO(b'{"message":"domain not verified"}')
+
     def reject(*_a, **_k):
-        raise urllib.error.HTTPError(
-            mailer.RESEND_ENDPOINT,
-            403,
-            "Forbidden",
-            Message(),
-            io.BytesIO(b'{"message":"domain not verified"}'),
-        )
+        raise urllib.error.HTTPError(mailer.RESEND_ENDPOINT, 403, "Forbidden", Message(), body)
 
     monkeypatch.setattr(mailer.urllib.request, "urlopen", reject)
     result = mailer.send(
@@ -419,6 +415,8 @@ def test_resend_rejection_body_is_kept(monkeypatch):
     assert result.status == "failed"
     assert result.error is not None
     assert "HTTP 403" in result.error
+    # Closed once read, not left to the garbage collector (Python 3.15 warns).
+    assert body.closed
     assert "domain not verified" in result.error
 
 

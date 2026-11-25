@@ -261,7 +261,13 @@ def _fetch_status(url: str, timeout: float) -> int:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             return response.status
     except urllib.error.HTTPError as exc:
-        return exc.code
+        # The error holds the response open; close it rather than leave it to
+        # the garbage collector, which Python 3.15 warns about. close(), not
+        # `with`: entering an already-closed error raises ValueError.
+        try:
+            return exc.code
+        finally:
+            exc.close()
 
 
 def warm_up(
