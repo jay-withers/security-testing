@@ -401,3 +401,38 @@ def test_timed_warm_up_stamps_when_the_warm_up_finished(monkeypatch):
     monkeypatch.setattr(scan.time, "monotonic", lambda: now["t"])
 
     assert scan._timed_warm_up(scan.select_targets([row()])[0][0]) == (True, "HTTP 200", 40.0)
+
+
+def test_an_error_status_is_returned_and_its_response_closed(monkeypatch):
+    """An HTTPError holds the response open; leaving it to the GC leaks it.
+
+    Python 3.15 warns on that deallocation, and the suite's filterwarnings
+    turns the warning into a failure, so the error must be closed here.
+    """
+    import io
+    import urllib.error
+    from email.message import Message
+
+    body = io.BytesIO(b"Service Unavailable")
+
+    def unavailable(*_a, **_k):
+        raise urllib.error.HTTPError("https://example.test", 503, "Unavailable", Message(), body)
+
+    monkeypatch.setattr(scan.urllib.request, "urlopen", unavailable)
+    assert scan._fetch_status("https://example.test", timeout=1) == 503
+    assert body.closed
+
+
+def test_an_error_whose_response_is_already_closed_still_returns_its_status(monkeypatch):
+    import io
+    import urllib.error
+    from email.message import Message
+
+    body = io.BytesIO(b"")
+    body.close()
+
+    def unavailable(*_a, **_k):
+        raise urllib.error.HTTPError("https://example.test", 503, "Unavailable", Message(), body)
+
+    monkeypatch.setattr(scan.urllib.request, "urlopen", unavailable)
+    assert scan._fetch_status("https://example.test", timeout=1) == 503
