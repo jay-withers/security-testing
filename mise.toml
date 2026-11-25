@@ -8,7 +8,7 @@
 # Renovate raises patches only (jay-withers/renovate's mise preset). Also runs
 # pre-commit and its Python hooks.
 python = "3.11.18"
-uv = "0.13.8"
+uv = "0.13.9"
 pre-commit = "4.7.0"
 # actionlint lints workflow run: blocks with it, and silently skips them without it.
 shellcheck = "0.11.0"
