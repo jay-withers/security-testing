@@ -1,6 +1,6 @@
 name: ci-python
 
-# Runs the test suite, mypy and the diff-coverage gate on a pull request, via
+# Runs the test suite, mypy, ruff and both coverage floors on a pull request, via
 # the shared workflow so every repo of ours gets the same job and a fix lands
 # once.
 on:
@@ -9,9 +9,6 @@ on:
 
 permissions:
   contents: read
-  # For the coverage comment. The reusable workflow declares no permissions of
-  # its own precisely so this is reachable.
-  pull-requests: write
 
 jobs:
   test:
@@ -29,9 +26,14 @@ jobs:
       python-version: "3.11"
       extras: dev
       coverage: sectest
-      coverage-pr-comment: true
-      # Total coverage is reported, never gated. diff-coverage gates only the lines
-      # a PR changes, where the cheap way to pass is to test the new code. A test
-      # that only asserts a mock still counts, so review the tests too.
-      diff-coverage: "80"
+      # Both floors fail the check: the total (coverage-min), so the package
+      # can't slip, and the lines a PR changes (diff-coverage), so new code
+      # comes with its tests. A test that only asserts a mock still counts,
+      # so review the tests too. The table is in the job summary; there is
+      # no PR comment.
+      coverage-min: "90"
+      diff-coverage: "90"
       typecheck: mypy
+      # ruff check and ruff format --check, from the locked dev extra, so CI
+      # runs the ruff `make lint` does.
+      lint: true
