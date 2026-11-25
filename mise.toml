@@ -3,8 +3,11 @@
 # (jay-withers/workflows v1.26.1+), and Renovate keeps them current.
 
 [tools]
-# runs pre-commit and its Python hooks.
-python = "3.15.2"
+# The ZAP image's interpreter (bookworm's python3, 3.11), so local runs and
+# CI test what the job runs; ci-container-build checks the two match.
+# Renovate raises patches only (jay-withers/renovate's mise preset). Also runs
+# pre-commit and its Python hooks.
+python = "3.11.18"
 uv = "0.13.9"
 pre-commit = "4.7.0"
 # actionlint lints workflow run: blocks with it, and silently skips them without it.
