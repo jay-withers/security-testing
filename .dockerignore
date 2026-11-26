@@ -1,0 +1,8 @@
+# Kept out of the build context: the Dockerfile COPYs only pyproject.toml,
+# uv.lock and src/, and these are large, local, or both.
+.git/
+.venv/
+node_modules/
+coverage/
+terraform/.terraform/
+zap-wrk/

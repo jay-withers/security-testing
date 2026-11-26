@@ -9,6 +9,10 @@
 # pre-commit and its Python hooks.
 python = "3.11.18"
 uv = "0.13.9"
+# The TypeScript port's runtime (package.json; ci-node runs on it). Renovate
+# never raises its major (jay-withers/renovate's npm preset): it moves by hand,
+# with the image's node and @types/node, once a new major is LTS.
+node = "26.13.1"
 pre-commit = "4.7.0"
 # actionlint lints workflow run: blocks with it, and silently skips them without it.
 shellcheck = "0.11.0"
