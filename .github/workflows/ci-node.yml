@@ -1,0 +1,28 @@
+name: ci-node
+
+# The TypeScript port's suite (src/*.ts, tests/*.test.ts): tests, tsc, ESLint,
+# Prettier and both coverage floors, via the shared node.yml, on the Node
+# mise.toml pins.
+#
+# Not a required check while the port runs beside the Python: ci-python's
+# `test / Test` is the one that gates. The cutover renames this job to `test`,
+# so the required check keeps its name and branch protection needs no change.
+#
+# Deliberately not path filtered, as ci-python is not: a suite that runs on
+# every pull request is the one that is known to pass.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    uses: jay-withers/workflows/.github/workflows/node.yml@5d343e509d10133cf6358b2da80df75f2a2c073a # v1.36.0
+    with:
+      coverage: true
+      # The same floors as ci-python: the total, so the port can't slip, and
+      # the lines a PR changes, so new code comes with its tests.
+      coverage-min: "90"
+      diff-coverage: "90"

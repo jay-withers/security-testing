@@ -1,0 +1,34 @@
+{
+  "name": "sectest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DAST scanner for Azure Container Apps (the TypeScript port of src/sectest).",
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format:check": "prettier --check src tests eslint.config.js vitest.config.ts tsconfig.json package.json .prettierrc.json",
+    "format": "prettier --write src tests eslint.config.js vitest.config.ts tsconfig.json package.json .prettierrc.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@azure/arm-resourcegraph": "5.0.0",
+    "@azure/identity": "4.14.1",
+    "@azure/keyvault-secrets": "4.12.0",
+    "@azure/storage-blob": "12.34.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.11",
+    "@vitest/coverage-v8": "5.1.2",
+    "eslint": "10.15.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.74.0",
+    "vitest": "5.1.2"
+  }
+}

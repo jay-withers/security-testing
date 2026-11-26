@@ -38,8 +38,13 @@ jobs:
         with:
           filters: |
             image:
-              - 'src/**'
+              # src/sectest, not src: the image is the Python package alone
+              # until the cutover. The TypeScript port beside it (src/*.ts) is
+              # not in the image, so a change to it alone builds nothing.
+              - 'src/sectest/**'
               - 'Dockerfile'
+              # What goes into the build context.
+              - '.dockerignore'
               - 'pyproject.toml'
               - 'uv.lock'
               # The accepted-risk list: changing it has to re-run the scan it changes.

@@ -1,0 +1,397 @@
+[
+  {
+    "name": "mixed",
+    "current": {
+      "prefix": "2026-10-19/060000Z-passive",
+      "summary": {
+        "started": "2026-10-19T06:00:00+00:00",
+        "results": [
+          {
+            "target": {
+              "id": "/a",
+              "name": "ca-a-dev"
+            },
+            "status": "completed",
+            "report_prefix": "r/a"
+          },
+          {
+            "target": {
+              "id": "/b",
+              "name": "ca-b-dev"
+            },
+            "status": "error",
+            "error": "ZAP did not produce a report"
+          },
+          {
+            "target": {
+              "id": "/d",
+              "name": "<d&'\">"
+            },
+            "status": "completed",
+            "report_prefix": "r/d"
+          },
+          {
+            "target": {
+              "id": "/f",
+              "name": "ca-f-dev"
+            },
+            "status": "completed",
+            "report_prefix": "r/f"
+          },
+          {
+            "target": {
+              "id": "/g",
+              "name": "ca-g-dev"
+            },
+            "status": "timeout",
+            "error": null
+          }
+        ],
+        "skipped": [
+          {
+            "name": "ca-e-dev",
+            "reason": "app is stopped"
+          }
+        ]
+      },
+      "reports": {
+        "/a": {
+          "site": [
+            {
+              "alerts": [
+                {
+                  "alertRef": "10020-1",
+                  "name": "Missing Anti-clickjacking Header",
+                  "riskcode": "2"
+                },
+                {
+                  "alertRef": "10055-6",
+                  "name": "CSP: style-src unsafe-inline",
+                  "riskcode": "2"
+                },
+                {
+                  "alertRef": "10035-1",
+                  "name": "HSTS",
+                  "riskcode": "1"
+                }
+              ]
+            }
+          ]
+        },
+        "/d": {
+          "site": [
+            {
+              "alerts": [
+                {
+                  "alertRef": "9",
+                  "name": "<script>x</script>",
+                  "riskcode": 3
+                }
+              ]
+            }
+          ]
+        },
+        "/f": {
+          "site": []
+        }
+      }
+    },
+    "earlier": [
+      {
+        "prefix": "2026-10-12/060000Z-passive",
+        "summary": {
+          "started": "2026-10-12T06:00:00+00:00",
+          "results": [
+            {
+              "target": {
+                "id": "/a",
+                "name": "ca-a-dev"
+              },
+              "status": "completed",
+              "report_prefix": "o/a"
+            },
+            {
+              "target": {
+                "id": "/b",
+                "name": "ca-b-dev"
+              },
+              "status": "error",
+              "error": "boom"
+            },
+            {
+              "target": {
+                "id": "/c",
+                "name": "ca-c-dev"
+              },
+              "status": "completed",
+              "report_prefix": "o/c"
+            },
+            {
+              "target": {
+                "id": "/f",
+                "name": "ca-f-dev"
+              },
+              "status": "error",
+              "error": "x"
+            }
+          ]
+        },
+        "reports": {
+          "/a": {
+            "site": [
+              {
+                "alerts": [
+                  {
+                    "alertRef": "10038",
+                    "name": "CSP Header Not Set",
+                    "riskcode": "2"
+                  },
+                  {
+                    "alertRef": "10035-1",
+                    "name": "HSTS",
+                    "riskcode": "1"
+                  }
+                ]
+              }
+            ]
+          },
+          "/c": {
+            "site": []
+          }
+        }
+      },
+      {
+        "prefix": "2026-10-05/060000Z-passive",
+        "summary": {
+          "started": "2026-10-05T06:00:00+00:00",
+          "results": [
+            {
+              "target": {
+                "id": "/b",
+                "name": "ca-b-dev"
+              },
+              "status": "completed",
+              "report_prefix": "p/b"
+            },
+            {
+              "target": {
+                "id": "/f",
+                "name": "ca-f-dev"
+              },
+              "status": "completed",
+              "report_prefix": "p/f"
+            }
+          ]
+        },
+        "reports": {
+          "/b": {
+            "site": [
+              {
+                "alerts": [
+                  {
+                    "alertRef": "10055-6",
+                    "name": "CSP: style-src unsafe-inline",
+                    "riskcode": "2"
+                  },
+                  {
+                    "pluginid": "10096",
+                    "alert": "Timestamp",
+                    "riskcode": "1"
+                  }
+                ]
+              }
+            ]
+          },
+          "/f": {
+            "site": [
+              {
+                "alerts": [
+                  {
+                    "alertRef": "1",
+                    "name": "Gone",
+                    "riskcode": "3"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "active-first",
+    "current": {
+      "prefix": "2026-10-15/202812Z-active",
+      "summary": {
+        "started": "2026-10-15T20:28:12+00:00",
+        "results": [
+          {
+            "target": {
+              "id": "/a",
+              "name": "zeta"
+            },
+            "status": "completed",
+            "report_prefix": "r/a"
+          },
+          {
+            "target": {
+              "id": "/b",
+              "name": "alpha"
+            },
+            "status": "completed",
+            "report_prefix": "r/b"
+          }
+        ]
+      },
+      "reports": {
+        "/a": {
+          "site": [
+            {
+              "alerts": [
+                {
+                  "alertRef": "1",
+                  "name": "B",
+                  "riskcode": "1"
+                },
+                {
+                  "alertRef": "2",
+                  "name": "A",
+                  "riskcode": "1"
+                },
+                {
+                  "alertRef": "3",
+                  "name": "Z",
+                  "riskcode": "3"
+                }
+              ]
+            }
+          ]
+        },
+        "/b": {
+          "site": [
+            {
+              "alerts": [
+                {
+                  "alertRef": "55",
+                  "name": "Same",
+                  "riskcode": "2"
+                },
+                {
+                  "alertRef": "55",
+                  "name": "Same again",
+                  "riskcode": "2"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "earlier": []
+  },
+  {
+    "name": "all-failed",
+    "current": {
+      "prefix": "2026-10-19/060000Z-passive",
+      "summary": {
+        "started": "x",
+        "results": [
+          {
+            "target": {
+              "id": "/a",
+              "name": "a"
+            },
+            "status": "error",
+            "error": "down"
+          }
+        ]
+      },
+      "reports": {}
+    },
+    "earlier": []
+  },
+  {
+    "name": "odd-alerts",
+    "current": {
+      "prefix": "2026-10-19/060000Z-passive",
+      "summary": {
+        "started": "2026-10-19T06:00:00+00:00",
+        "results": [
+          {
+            "target": {
+              "id": "/a",
+              "name": "a"
+            },
+            "status": "completed",
+            "report_prefix": "r/a"
+          }
+        ]
+      },
+      "reports": {
+        "/a": {
+          "site": [
+            {
+              "alerts": [
+                {
+                  "riskcode": "2"
+                },
+                {
+                  "riskcode": "1",
+                  "alertRef": "",
+                  "pluginid": "",
+                  "name": ""
+                },
+                {
+                  "riskcode": 3,
+                  "pluginid": "40012",
+                  "alert": "Cross Site Scripting"
+                },
+                {
+                  "riskcode": " 1 ",
+                  "name": "Padded riskcode"
+                },
+                {
+                  "riskcode": "2",
+                  "alertRef": "10055-6",
+                  "name": null
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "earlier": [
+      {
+        "prefix": "2026-10-12/060000Z-passive",
+        "summary": {
+          "started": "2026-10-12T06:00:00+00:00",
+          "results": [
+            {
+              "target": {
+                "id": "/a",
+                "name": "a"
+              },
+              "status": "completed",
+              "report_prefix": "o/a"
+            }
+          ]
+        },
+        "reports": {
+          "/a": {
+            "site": [
+              {
+                "alerts": [
+                  {
+                    "riskcode": "2"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

@@ -50,3 +50,7 @@ dist/
 
 # ZAP reports from a local run
 /zap-wrk/
+
+# Node (the TypeScript port)
+node_modules/
+coverage/

@@ -16,23 +16,33 @@ PROFILE ?= passive
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint test typecheck build push deploy deployed-tag smoke scan logs reports secrets init fmt validate plan apply
+.PHONY: help install lint lint-node test typecheck build push deploy deployed-tag smoke scan logs reports secrets init fmt validate plan apply
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install mise tools, pre-commit hooks and Python dependencies
+install: ## Install mise tools, pre-commit hooks, and Python and Node dependencies
 	mise install
 	pre-commit install
 	pre-commit install --hook-type commit-msg
 	uv sync --extra dev
+	npm ci --ignore-scripts
 
-test: ## Run the test suite (no Azure, no ZAP)
+# The TypeScript port runs beside the Python until it replaces it, so test and
+# typecheck run both, and verify.sh holds both to them.
+
+test: ## Run both test suites, Python and TypeScript (no Azure, no ZAP)
 	uv run --extra dev pytest
+	npm test
 
-typecheck: ## Type-check src/ and tests/ with mypy (config in pyproject.toml)
+typecheck: ## Type-check with mypy (pyproject.toml) and tsc (tsconfig.json)
 	uv run --extra dev mypy
+	npm run typecheck
+
+lint-node: ## ESLint and Prettier over the TypeScript port, as ci-node runs them
+	npm run lint
+	npm run format:check
 
 lint: ## Run every pre-commit hook against every file
 	pre-commit run --all-files
