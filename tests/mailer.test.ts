@@ -1,4 +1,4 @@
-// The mailer: no Resend, no Key Vault. A port of tests/test_digest.py's
+// The mailer: no Resend, no Key Vault. Ported from the Python scanner's test_digest.py's
 // mailer cases.
 
 import { afterEach, describe, expect, it } from "vitest";

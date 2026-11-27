@@ -86,7 +86,7 @@ what changed since the previous passive run:
 - **new** and **resolved** findings, where a finding is an app plus a ZAP rule
   plus its risk (Informational alerts are left out)
 - **accepted** findings, with their reason: risks taken on purpose, listed
-  in `src/sectest/accepted.py` by ZAP rule, risk and app. They are never
+  in `src/accepted.ts` by ZAP rule, risk and app. They are never
   counted as open, new or resolved, so a decision doesn't read as news every
   week. The findings alert still counts them.
 - scans that failed, and apps that were skipped
@@ -131,7 +131,7 @@ isn't tagged `security-scan-mode = "passive"`.
   rule ignores 401s, so attacks refused by a login don't count, but 422s
   from malformed form data do. Every scan request carries the
   User-Agent `sectest-dast-scanner (…)` (`USER_AGENT` in
-  `src/sectest/scan.py`), so the platform rule can exclude scanner traffic
+  `src/scan.ts`), so the platform rule can exclude scanner traffic
   rather than fire on it. That change belongs in azure-container-apps, not
   here.
 - **Egress IP.** On the Consumption plan the job's outbound IP is not static.
@@ -168,11 +168,11 @@ Only scan apps you own, and follow Microsoft's
 ## Commands
 
 ```bash
-make install    # mise tools, pre-commit hooks, the uv venv and node_modules
-make test       # pytest and the TypeScript suite (vitest) — no Azure, no ZAP
-make typecheck  # mypy and tsc; CI runs both
+make install    # mise tools, pre-commit hooks and node_modules
+make test       # the vitest suite — no Azure, no ZAP
+make typecheck  # tsc; CI runs it too
 make lint       # every pre-commit hook
-make lint-node  # ESLint and Prettier over the TypeScript port
+make lint-node  # ESLint and Prettier, as ci-node runs them
 make build      # docker build for linux/amd64
 make deploy IMAGE_TAG=v0.2.0   # roll a released image onto both jobs
 make scan       # start a passive run now, outside the schedule
@@ -223,12 +223,12 @@ Every workflow calls a shared one in
 [jay-withers/workflows](https://github.com/jay-withers/workflows), pinned by
 SHA.
 
-- **ci-pre-commit**, **ci-python** (pytest, mypy and the Python checks),
-  **ci-node** (the TypeScript port's tests, tsc, ESLint and Prettier; not a
-  required check yet, see [The TypeScript port](#the-typescript-port)) and
-  **ci-container-build** (build plus Trivy) on PRs, plus **ci-terraform**:
+- **ci-pre-commit**, **ci-node** (`test / Test`: vitest, tsc, ESLint,
+  Prettier and both 90% coverage floors) and **ci-container-build** (build,
+  Trivy, and the image's Node major against `mise.toml`'s) on PRs, plus
+  **ci-terraform**:
   credential-free validate, then a real plan of dev commented on the PR.
-- **ci-codeql**: CodeQL code scanning of the workflows.
+- **ci-codeql**: CodeQL code scanning of the TypeScript and the workflows.
 - **cd-tag** tags a release on every merge to `main` and calls **cd-publish**,
   which publishes `ghcr.io/jay-withers/security-testing/sectest` and deploys
   it, as above.
@@ -252,45 +252,45 @@ az storage blob download --auth-mode login \
   --container-name reports --name '<date>/<time>/summary.json' --file summary.json
 ```
 
-## The TypeScript port
+## How it's built
 
-The scanner is being ported from Python to TypeScript, as a learning port. The
-port sits beside the Python, module for module (`src/scan.ts` is
-`src/sectest/scan.py`, and so on), and **nothing runs it yet**: the image, the
-jobs and `test / Test` are still the Python's. A later cutover switches the
-Dockerfile to `node src/main.ts`, renames `ci-node`'s job to `test` so the
-required check keeps its name, and deletes the Python.
+The scanner is TypeScript, run by Node (the release `mise.toml` pins) inside
+the ZAP image. It was ported from Python in November 2026; the behaviour,
+the reports, the log lines and the digest email are what the Python's were.
 
 - **Node runs the `.ts` sources directly** (type stripping), so there is no
   build step and no `dist/`. `tsconfig.json` enforces what that needs:
   erasable syntax only, and imports that name the `.ts` file. `tsc` only type
   checks.
-- **The behaviour is the Python's.** `summary.json` keeps its snake_case keys,
-  because the digest reads earlier runs whichever scanner wrote them, and
-  `tests/parity.test.ts` checks the TypeScript digest renders the same email,
-  byte for byte, as `digest.py` did for the runs in `tests/fixtures/`.
+- **`summary.json` keeps the Python scanner's snake_case keys**, because the
+  digest reads earlier runs, including the ones the Python wrote.
+  `tests/parity.test.ts` checks the digest still renders the email, byte for
+  byte, as the Python did for the runs in `tests/fixtures/`.
 - **Azure is behind small interfaces** (`ResourceGraph`, `Container`,
   `SecretStore`), which the real SDK clients satisfy and the tests fake.
   `src/azure.ts` only builds the clients, and it and `src/main.ts` are left
-  out of coverage, as `main()` was in Python. `main()` itself is tested here.
-- **The image will need an init.** The ZAP wrapper orphans its JVM, which is
-  re-parented to PID 1. Python reaped it there with `os.waitpid`; Node cannot,
-  so the cutover's image runs `node` under `tini`, or a zombie JVM would read
-  as still alive and every scan would wait out the 120s shutdown grace.
+  out of coverage. `main()` itself is tested.
+- **The image runs `node` under `tini`.** A ZAP wrapper exits leaving its
+  JVM and Xvfb behind, re-parented to PID 1. Node only reaps its own
+  children, so as PID 1 it would leave them as zombies that still read as
+  alive, and every scan would wait out the 120s shutdown grace. `tini` reaps
+  them (measured: the group was gone 0.3s after the wrapper exited).
+- **The ZAP wrappers still run on the image's system Python**, where the base
+  image installed their `zaproxy` client. Nothing in this repo runs on it.
 
 ## Structure
 
 ```text
-Dockerfile                 # FROM zaproxy/zap-stable + the sectest venv
-pyproject.toml / uv.lock   # the scanner package
-src/sectest/scan.py        # discovery, scan dispatch, report upload
-src/sectest/digest.py      # each run's digest: compare, render, send
-src/sectest/accepted.py    # findings accepted as risks, which the digest lists apart
-src/sectest/mailer.py      # Resend, with secrets from Key Vault
-src/sectest/selfcheck.py   # the post-deploy check: settings, secrets, storage
-tests/                     # pytest (test_*.py) and vitest (*.test.ts)
-src/*.ts                   # the TypeScript port, module for module (see below)
-package.json / package-lock.json  # its dependencies; Node from mise.toml
+Dockerfile                 # FROM zaproxy/zap-stable + node + tini + src/
+package.json / package-lock.json  # the scanner's dependencies; Node from mise.toml
+src/scan.ts                # discovery, scan dispatch, report upload
+src/digest.ts              # each run's digest: compare, render, send
+src/accepted.ts            # findings accepted as risks, which the digest lists apart
+src/mailer.ts              # Resend, with secrets from Key Vault
+src/selfcheck.ts           # the post-deploy check: settings, secrets, storage
+src/cli.ts  src/main.ts    # `sectest [selfcheck]`, the image's ENTRYPOINT
+src/azure.ts               # the real Azure clients behind the interfaces above
+tests/                     # vitest (*.test.ts); fixtures/ holds the digest's golden output
 tsconfig.json  eslint.config.js  vitest.config.ts  .prettierrc.json
 terraform/
   data.tf                  # the shared platform, resolved by name
@@ -303,7 +303,7 @@ terraform/
   backends/dev.hcl         # partial backend config
   environments/dev.tfvars
 .github/workflows/
-  ci-python.yml  ci-node.yml  ci-container-build.yml  ci-terraform.yml  ci-pre-commit.yml  ci-codeql.yml
+  ci-node.yml  ci-container-build.yml  ci-terraform.yml  ci-pre-commit.yml  ci-codeql.yml
   cd-tag.yml  cd-publish.yml   # release → publish ghcr.io/jay-withers/security-testing/sectest
   cd-terraform.yml  schedule-drift.yml  manual-terraform-unlock.yml
 ```

@@ -23,12 +23,12 @@ locals {
   # Defaults to the subscription this is applied into.
   target_subscription_ids = length(var.target_subscription_ids) > 0 ? var.target_subscription_ids : [data.azurerm_subscription.current.subscription_id]
 
-  # Stamped on every JSON log line scan.py writes, and filtered on by the
+  # Stamped on every JSON log line scan.ts writes, and filtered on by the
   # findings alert, so another tenant's logs can never match it.
   log_source = "sectest"
 
   # One job per profile, same image. Passive is every app, weekly, never
-  # attacks anything, and ends by emailing the digest (src/sectest/digest.py).
+  # attacks anything, and ends by emailing the digest (src/digest.ts).
   # Weekly rather than nightly because passive findings change when apps are
   # deployed, not overnight, and every run wakes each scale-to-zero app and
   # lands in the shared workspace's HTTP logs; `make scan` covers a deploy
@@ -37,7 +37,7 @@ locals {
   # null): a clean passive run says nothing about what an attack would find,
   # but a weekly attack run cost a weekly app-error alert per app and login
   # floods for little gain, so it runs on demand — after significant changes
-  # to a login or form, or before a release. See src/sectest/scan.py.
+  # to a login or form, or before a release. See src/scan.ts.
   #
   # Active scans take far longer per app, hence the longer timeouts: the
   # per-target one stops a single slow app eating the whole run.

@@ -1,11 +1,11 @@
 # Findings, alerted on from the shared workspace. Passive runs only: an active
 # run is started by hand, and its findings arrive in the email it ends with
-# (src/sectest/digest.py), so alerting on them as well would only duplicate it.
+# (src/digest.ts), so alerting on them as well would only duplicate it.
 #
 # **Why the job exits 0 when it finds something.** The platform's
 # workload-crashed alert fires on any job execution that fails
 # (`BackoffLimitExceeded`), and means "this workload is broken". A scan that
-# worked and found a High-risk alert is not that — so scan.py exits non-zero
+# worked and found a High-risk alert is not that — so scan.ts exits non-zero
 # only when a scan itself failed, which the platform rule then catches for free,
 # and reports findings as a `scan_finished` line with `over_threshold: true`,
 # which this rule catches instead. Two different problems, two different alerts.

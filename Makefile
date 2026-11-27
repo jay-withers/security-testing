@@ -22,25 +22,19 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install mise tools, pre-commit hooks, and Python and Node dependencies
+install: ## Install mise tools, pre-commit hooks and the Node dependencies
 	mise install
 	pre-commit install
 	pre-commit install --hook-type commit-msg
-	uv sync --extra dev
 	npm ci --ignore-scripts
 
-# The TypeScript port runs beside the Python until it replaces it, so test and
-# typecheck run both, and verify.sh holds both to them.
-
-test: ## Run both test suites, Python and TypeScript (no Azure, no ZAP)
-	uv run --extra dev pytest
+test: ## Run the test suite with vitest (no Azure, no ZAP)
 	npm test
 
-typecheck: ## Type-check with mypy (pyproject.toml) and tsc (tsconfig.json)
-	uv run --extra dev mypy
+typecheck: ## Type-check src/ and tests/ with tsc (tsconfig.json)
 	npm run typecheck
 
-lint-node: ## ESLint and Prettier over the TypeScript port, as ci-node runs them
+lint-node: ## ESLint and Prettier over src/ and tests/, as ci-node runs them
 	npm run lint
 	npm run format:check
 

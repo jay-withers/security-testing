@@ -16,48 +16,51 @@ ends by emailing a digest of what changed since the previous passive run, and
 has **no schedule**, and ends by emailing its findings instead of alerting. It's a manual-trigger job (`make scan PROFILE=active`),
 because `local.scan_profiles.active.cron = null`. `security-scan = "false"` skips an app in both. The passive
 profile must never attack. `zap-api-scan.py` is active by default, so it
-always gets `-S` there, and `test_passive_profile_never_attacks` guards this. It is a platform *tenant* shaped like
+always gets `-S` there, and the "never attacks in the passive profile" test in `tests/scan.test.ts` guards this. It is a platform *tenant* shaped like
 [jay-withers/finances](https://github.com/jay-withers/finances): follow that
 repo's conventions when in doubt.
 
 ## Layout
 
-- `src/sectest/digest.py` and `mailer.py`: the digest every run emails (via
+The scanner is TypeScript (ported from Python in November 2026), run by Node
+straight from `src/*.ts`: type stripping, no build step. Keep to erasable
+syntax (`erasableSyntaxOnly` enforces it) and import the `.ts` file.
+
+- `src/digest.ts` and `mailer.ts`: the digest every run emails (via
   Resend, secrets from this repo's Key Vault). Each profile is compared only
   with its own earlier runs, and an active digest lists every open finding. It
-  compares only apps scanned in both runs, so a failed scan never reads as resolved, and it never
-  raises, so it can't change the job's exit code.
-- `src/sectest/accepted.py`: findings accepted as risks, by ZAP `alertRef`
+  compares only apps scanned in both runs, so a failed scan never reads as
+  resolved, and it never throws, so it can't change the job's exit code.
+  `tests/parity.test.ts` holds its output, byte for byte, to what the Python
+  rendered (`tests/fixtures/`); a deliberate change to the email rewrites the
+  golden file (`tests/fixtures/README.md`) and reviews its diff.
+- `src/accepted.ts`: findings accepted as risks, by ZAP `alertRef`
   and app (or `*`), each with a reason pointing at where the decision is
   written. The digest sets them aside as it reads every run, so they are
   never open, new or resolved, and lists them under "Accepted" instead.
   Only the digest reads it; the `over_threshold` alert counts every finding.
   Removing an entry makes its findings read as new again.
-- `src/sectest/scan.py`: the whole scanner. It has pure functions
-  (`select_targets`, `build_command`, `count_risks`, `exceeds_threshold`) that
-  `tests/test_scan.py` covers, plus the Azure/ZAP glue. `tests/test_runner.py`
-  covers the glue that decides whether a scan counts (`run_scan`'s
-  completed/error/timeout, `stop_process_group` against real processes,
-  `discover_targets`' paging, `upload_reports`), faked at `subprocess.Popen`
-  and the Azure clients; `main()` itself is untested, and marked `# pragma: no cover` so the
-  coverage floors don't push a mock-only test onto it. The console script
-  `sectest` is the image's ENTRYPOINT.
-- `Dockerfile`: `FROM zaproxy/zap-stable` (bookworm, Python 3.11, uid 1000),
-  with the package installed into `/app/.venv` by uv. **The venv must stay off
-  PATH.** The `zap-*.py` scripts use `#!/usr/bin/env python3` and need the
-  system interpreter, which has their `zaproxy` client. The image creates
-  `/zap/wrk` because the packaged scans refuse to write reports without it.
-- `src/*.ts`, `tests/*.test.ts`, `package.json`: the **TypeScript port**,
-  beside the Python, module for module, and not yet run by anything (the
-  README's "The TypeScript port" section). Keep the two in step until the
-  cutover: a behaviour change lands in both, with a test in each, and a change
-  to the digest's output regenerates `tests/fixtures/digest-golden.json` from
-  the Python (`tests/fixtures/README.md`). Node runs the `.ts` files directly,
-  so keep to erasable syntax (`erasableSyntaxOnly` enforces it) and import
-  the `.ts` file. `summary.json`'s keys stay snake_case for the digest's sake.
-  The cutover's image must run `node` under `tini`: Node can't reap the JVM
-  the ZAP wrapper orphans, and `processGroupAlive` would then wait out the
-  grace on every scan.
+- `src/scan.ts`: the whole scanner. Pure functions (`selectTargets`,
+  `buildCommand`, `countRisks`, `exceedsThreshold`) that `tests/scan.test.ts`
+  covers, plus the ZAP glue (`runScan`'s completed/error/timeout,
+  `stopProcessGroup` against real processes) and `main()`, which
+  `tests/runner.test.ts` covers through its seams. Azure is behind small
+  interfaces (`ResourceGraph`, `Container`, `SecretStore`) the SDK clients
+  satisfy; `src/azure.ts` only builds the clients, and it and `src/main.ts`
+  are left out of coverage. `summary.json` keeps the Python scanner's
+  snake_case keys, because the digest reads earlier runs, the Python's
+  included.
+- `Dockerfile`: `FROM zaproxy/zap-stable` (bookworm, uid 1000), with `node`
+  copied in from the official `node:<mise.toml's version>-bookworm-slim`
+  image, the production `node_modules` from a builder stage, and `src/`.
+  **The ENTRYPOINT is `tini -- node /app/src/main.ts`, and tini must stay.**
+  A ZAP wrapper exits leaving its JVM and Xvfb behind, re-parented to PID 1;
+  Node only reaps its own children, so as PID 1 it leaves them as zombies,
+  `processGroupAlive` reads them as alive, and every scan waits out the 120s
+  grace. The `zap-*.py` wrappers run on the image's system `python3`, where
+  the base image installed their `zaproxy` client; nothing here uses it. The
+  image creates `/zap/wrk` because the packaged scans refuse to write reports
+  without it.
 - `terraform/` is a **root configuration** (partial `azurerm` backend in
   `backends/<env>.hcl`, committed `.terraform.lock.hcl`, azurerm `~> 5.0`), not
   a reusable module. There are no examples and no terraform tests. Only `dev`
@@ -84,7 +87,7 @@ repo's conventions when in doubt.
   the job.
 - Every log line carries `source` (`LOG_SOURCE`, set from `local.log_source`).
   The findings alert filters on it, so keep the two in step.
-- Every scan request sends `USER_AGENT` from `scan.py`, so the platform's
+- Every scan request sends `USER_AGENT` from `scan.ts`, so the platform's
   app-error rule can exclude scanner traffic.
 - The shared workspace has a 0.15 GB/day cap for all tenants. Don't add
   diagnostic settings that ship to it (hence the `CKV2_AZURE_21` skip), and
@@ -101,9 +104,8 @@ apply, or a ForceNew change like switching a job between scheduled and manual;
 a new cron expression updates in place) must be followed by `make deploy`,
 or the job silently runs the placeholder, which exits 0, so no alert fires. `cd-tag` publishes
 `ghcr.io/jay-withers/security-testing/sectest:{vX.Y.Z,<sha>}` via
-`cd-publish.yml` when `src/sectest/`, `Dockerfile`, `.dockerignore`, `pyproject.toml` or `uv.lock`
-changed since the previous release (not `src/` as a whole: the TypeScript port
-beside it isn't in the image until the cutover). Keep that path list in step with
+`cd-publish.yml` when `src/`, `Dockerfile`, `.dockerignore`, `package.json` or
+`package-lock.json` changed since the previous release. Keep that path list in step with
 `ci-container-build.yml`'s filter. `cd-publish`'s `deploy` job then runs `make deploy IMAGE_TAG=<release>` against dev through the shared `container-apps-deploy.yml` (OIDC in the `dev` GitHub environment; `cd-tag`'s `publish` job grants `id-token: write` for it). An apply that recreates a workload does not trigger it: re-run `cd-publish` with `workflow_dispatch` and the current tag.
 
 ## File layout is enforced
@@ -121,11 +123,11 @@ copy of that script, so change it upstream rather than here.
 `make` with no target prints the help. Key targets:
 
 ```bash
-make install   # pre-commit hooks + uv sync --extra dev + npm ci
-make test      # pytest and vitest (no Azure, no ZAP)
-make typecheck # mypy and tsc, as CI runs them
-make lint      # every pre-commit hook (ruff, hadolint, tflint/checkov per env, …)
-make lint-node # ESLint and Prettier over the TypeScript port, as ci-node runs them
+make install   # mise tools, pre-commit hooks + npm ci
+make test      # vitest (no Azure, no ZAP)
+make typecheck # tsc, as CI runs it
+make lint      # every pre-commit hook (hadolint, tflint/checkov per env, …)
+make lint-node # ESLint and Prettier, as ci-node runs them
 make validate  # terraform init -backend=false + validate (no credentials)
 make plan      # needs Azure credentials and the platform applied
 make deploy IMAGE_TAG=vX.Y.Z
@@ -139,32 +141,33 @@ Commits must follow [Conventional Commits](https://www.conventionalcommits.org/)
 ## CI
 
 - **ci-pre-commit**: all hooks, via the shared `pre-commit.yml`.
-- **ci-python**: pytest on Python 3.11 (`mise.toml` pins the ZAP image's 3.11, and `ci-container-build` checks the two match), then mypy, via the shared `python.yml`, plus ruff. Total coverage and the lines a PR changes must both be at least 90%.
-- **ci-node**: the TypeScript port's vitest suite, `tsc`, ESLint and Prettier, with the same 90% total and diff coverage floors, via the shared `node.yml` (workflows v1.36.0+) on `mise.toml`'s Node. Its check, `node / Test`, is not required until the cutover renames the job to `test`.
-- **ci-container-build**: builds the image without pushing, and checks its `python3` is the Python `mise.toml` pins (workflows v1.35.0+). A `changes` job path-filters the build rather than the trigger, so the always-reporting `container-build` gate can be (and is) a required check.
+- **ci-codeql**: CodeQL over the TypeScript (`javascript-typescript`) and the workflows; high/critical alerts block merges.
+- **ci-node**: `test / Test`, the required check: the vitest suite, `tsc`, ESLint and Prettier, with 90% total and diff coverage floors, via the shared `node.yml` (workflows v1.36.0+) on `mise.toml`'s Node.
+- **ci-container-build**: builds the image without pushing, and checks its `node` major is the one `mise.toml` pins (workflows v1.36.0+). A `changes` job path-filters the build rather than the trigger, so the always-reporting `container-build` gate can be (and is) a required check.
 - **ci-terraform**: `validate` via the shared `terraform.yml` (`terraform / Terraform`), then a dev plan via the shared `terraform-deploy.yml`, commented on the PR, behind the always-reporting `terraform-plan` gate. `terraform-deploy.yml` runs in the `dev` GitHub environment, where `github-repos` sets `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` and federates this repo's OIDC identity to `<repo prefix>:environment:dev`; callers pass no credentials. Only dev is planned: it is the only platform environment with an identity.
 - **cd-terraform**: plans dev on every merge to `main` that touches Terraform, through the same `terraform-deploy.yml`, and **applies only when run by hand** (Actions → Run workflow). A merge whose plan has changes opens a `terraform-pending` issue (emailed, and listed in repo-agent's weekly digest); the manual run applies exactly the plan it prints and closes it. Apply that way rather than with a local `make apply`. The pipeline identity is Contributor and conditioned RBAC Administrator on `rg-sectest-dev`, both granted by github-repos, which also owns the group, so role assignments inside the group apply here too; one outside it needs a local `make apply`. Key Vault and reports access go to `administrator_object_id` in `environments/dev.tfvars`, never to "whoever applies", or every pipeline run would try to move them to itself. The scanner identity's subscription-scope Reader grants (`main.identity.tf`) are outside the group, so changing them is still a local apply.
 - **cd-tag** → **cd-publish**: semver tag on merge, then the GHCR publish when image sources changed.
 
 ## Type checking and coverage gates
 
-CI gates three more things, all inside `test / Test`: mypy over `src/` and
-`tests/` (`[tool.mypy]` in `pyproject.toml`, so `make typecheck` runs the same
-check), ruff (`ruff check` and `ruff format --check`, the same ruff `make lint`
-runs) and coverage. Total coverage of `sectest` must be at least 90%, and so
-must the lines a PR changes; the table is in the job summary, not a PR comment.
-Don't meet either floor with a test that only asserts a mock; test the
-behaviour.
+`test / Test` gates more than the tests: `tsc` over `src/` and `tests/`
+(`tsconfig.json`, so `make typecheck` runs the same check), ESLint and
+Prettier (the scripts `make lint-node` runs) and coverage. Total line coverage
+must be at least 90%, and so must the lines a PR changes; the table is in the
+job summary, not a PR comment. Don't meet either floor with a test that only
+asserts a mock; test the behaviour.
 
 ## Decisions not to re-litigate
 
-- **The TypeScript port validates all of its configuration; the Python
-  doesn't, and isn't changed to match.** `readConfig` turns a missing
+- **The scanner validates all of its configuration up front**, unlike the
+  Python it replaced, which crashed on a missing variable or a bad number
+  (exit 1, with a traceback). `readConfig` turns a missing
   `TARGET_SUBSCRIPTION_IDS` or `REPORT_CONTAINER_URL`, or a bad
   `SCAN_SPIDER_MINUTES` or `SCAN_TARGET_TIMEOUT`, into `config_error` and
-  exit 2, where `scan.py` raises (exit 1, with a traceback). Both fail the
-  job, so the workload-crashed alert fires either way. The Python goes at the
-  cutover, so fixing it now would be work thrown away. `SCAN_TARGET_TIMEOUT`
-  is also capped at 2147483 seconds, because Node's `setTimeout` clamps
-  anything longer to 1ms and would time every scan out at once. Revisit only
-  if the cutover is abandoned.
+  exit 2. Either fails the job, so the workload-crashed alert fires as it did.
+  `SCAN_TARGET_TIMEOUT` is capped at 2147483 seconds, because Node's
+  `setTimeout` clamps anything longer to 1ms and would time every scan out at
+  once.
+- **No build step.** Node runs the `.ts` files directly, so the image ships
+  `src/` as written, with nothing compiled to diverge from what was tested.
+  Revisit if a dependency needs syntax type stripping can't erase.

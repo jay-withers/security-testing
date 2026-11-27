@@ -38,15 +38,12 @@ jobs:
         with:
           filters: |
             image:
-              # src/sectest, not src: the image is the Python package alone
-              # until the cutover. The TypeScript port beside it (src/*.ts) is
-              # not in the image, so a change to it alone builds nothing.
-              - 'src/sectest/**'
+              - 'src/**'
+              - 'package.json'
+              - 'package-lock.json'
               - 'Dockerfile'
               # What goes into the build context.
               - '.dockerignore'
-              - 'pyproject.toml'
-              - 'uv.lock'
               # The accepted-risk list: changing it has to re-run the scan it changes.
               - '.trivyignore'
               - 'mise.toml'
@@ -65,10 +62,10 @@ jobs:
       contents: read
       security-events: write # Trivy findings to code scanning
       issues: write # build-failed issue, outside pull requests
-    uses: jay-withers/workflows/.github/workflows/docker.yml@ca86e90ed1f90f0afae1c2f2fc5a20c3a2115287 # v1.35.0
+    uses: jay-withers/workflows/.github/workflows/docker.yml@5d343e509d10133cf6358b2da80df75f2a2c073a # v1.36.0
     with:
       images: |
-        [{"name": "sectest", "context": ".", "python": "python3"}]
+        [{"name": "sectest", "context": ".", "node": "node"}]
       failure-issue: ${{ github.event_name != 'pull_request' }}
 
   # The required status check ("container-build"). Skipped counts as success,
