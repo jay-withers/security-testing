@@ -34,4 +34,4 @@ jobs:
       security-events: write
     uses: jay-withers/workflows/.github/workflows/codeql.yml@93bff29fb7e15a3669a1f120ab0c3a2940a413d6 # v1.34.0
     with:
-      languages: '["python", "actions"]'
+      languages: '["javascript-typescript", "actions"]'

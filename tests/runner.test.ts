@@ -1,5 +1,5 @@
 // The glue around ZAP: how a run is classified, killed, discovered and stored.
-// A port of tests/test_runner.py, plus main(), which the Python left untested.
+// Ported from the Python scanner's test_runner.py, plus main(), which the Python left untested.
 //
 // scan.test.ts covers the pure functions. This covers what decides whether a
 // scan *counts*: a ZAP that crashed or hung must come out as `error` or

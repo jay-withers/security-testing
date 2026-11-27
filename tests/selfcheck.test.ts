@@ -1,5 +1,5 @@
 // `sectest selfcheck`, which `make smoke` runs in each scanner job after a
-// deploy, and the CLI that dispatches to it. A port of tests/test_selfcheck.py.
+// deploy, and the CLI that dispatches to it. Ported from the Python scanner's test_selfcheck.py.
 //
 // It has to fail on exactly what would break a scan, and touch nothing: a
 // false failure rolls back a good release, and a scan would fire on every

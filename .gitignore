@@ -35,22 +35,9 @@ override.tf.json
 .DS_Store
 **/.DS_Store
 
-# Python
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-dist/
-*.egg-info/
-
 # ZAP reports from a local run
 /zap-wrk/
 
-# Node (the TypeScript port)
+# Node
 node_modules/
 coverage/

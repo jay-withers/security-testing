@@ -2,7 +2,7 @@
   "name": "sectest",
   "version": "0.0.0",
   "private": true,
-  "description": "DAST scanner for Azure Container Apps (the TypeScript port of src/sectest).",
+  "description": "DAST scanner for Azure Container Apps: OWASP ZAP against every app with external ingress.",
   "type": "module",
   "engines": {
     "node": ">=26"

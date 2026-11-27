@@ -17,9 +17,7 @@ jobs:
   # push that produced no version is still picked up by the next one that does.
   #
   # The paths below must stay in step with ci-container-build.yml's filter and
-  # with the Dockerfile's COPY lines. src/sectest/, not src/: the TypeScript
-  # port beside it is not in the image until the cutover, so a release that
-  # only changes it publishes and deploys nothing.
+  # with the Dockerfile's COPY lines.
   changes:
     needs: tag
     if: needs.tag.outputs.tag != ''
@@ -40,7 +38,7 @@ jobs:
           if [ -z "$prev_tag" ]; then
             echo "no previous release tag — publishing unconditionally"
             echo "apps=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$prev_tag"..HEAD -- src/sectest/ Dockerfile .dockerignore pyproject.toml uv.lock; then
+          elif git diff --quiet "$prev_tag"..HEAD -- src/ Dockerfile .dockerignore package.json package-lock.json; then
             echo "apps=false" >> "$GITHUB_OUTPUT"
           else
             echo "apps=true" >> "$GITHUB_OUTPUT"

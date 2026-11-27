@@ -2,7 +2,7 @@
  * The wiring: real Azure clients behind the seams the other modules take.
  *
  * Deliberately untested and left out of coverage (vitest.config.ts), as
- * scan.py's main() was: everything here only constructs SDK clients, and a
+ * the Python scanner's main() was: everything here only constructs SDK clients, and a
  * test of it could only assert mocks. Every decision they feed is tested
  * through the seams instead.
  */

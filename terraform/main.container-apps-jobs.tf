@@ -23,7 +23,7 @@ resource "azurerm_container_app_job" "scanner" {
   # it being omitted. Same region as the environment either way.
   location = data.azurerm_resource_group.this.location
 
-  # Bounds the whole run across every target; scan.py also bounds each target
+  # Bounds the whole run across every target; scan.ts also bounds each target
   # on its own, so one hung scan cannot eat the others' time.
   replica_timeout_in_seconds = each.value.timeout
   # No retry: a retry would scan every target a second time, doubling the

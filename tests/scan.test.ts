@@ -1,5 +1,5 @@
 // The pure parts of scan.ts and the warm-up logic: no Azure and no ZAP.
-// A port of tests/test_scan.py, case for case.
+// Ported from the Python scanner's test_scan.py, case for case.
 
 import { describe, expect, it, vi } from "vitest";
 

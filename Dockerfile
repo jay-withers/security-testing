@@ -4,55 +4,37 @@
 # --platform linux/amd64 — the Makefile's `build` target does it rather than
 # leaving it to memory.
 
-# The ZAP image is the base, not a python image with ZAP added: the packaged
+# Node comes from the official image, not apt: Debian's nodejs is years behind,
+# and this is the release mise.toml pins, which local runs and ci-node test on
+# (ci-container-build checks the majors match; Renovate moves the tag with
+# mise.toml's node). Both images are Debian bookworm, so its node binary runs
+# on the ZAP image's glibc as it is.
+FROM node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS node
+
+# Production dependencies only. --ignore-scripts, as in CI: none of them needs
+# an install script, and none gets to run one. npm ci fails rather than
+# resolving anything package-lock.json doesn't record.
+FROM node AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts
+
+# The ZAP image is the base, not a node image with ZAP added: the packaged
 # scans (zap-baseline.py and friends) are thin Python wrappers around a JVM
 # daemon, and reproducing their Java, add-ons and scripts layout ourselves would
 # be a second ZAP install to keep current. Renovate bumps this digest.
-#
-# Builder and runtime both derive from `base`, so the virtualenv is built by the
-# same interpreter (bookworm's python3, 3.11) that runs it — a venv is bound to
-# the exact minor version that created it.
-FROM zaproxy/zap-stable:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af AS base
-
-
-FROM base AS builder
-
-# The builder needs root to write /app and uv's cache under /root; nothing from
-# this stage runs — only the venv is copied out, and the runtime stage below
-# ends on uid 1000. Numeric so it resolves without /etc/passwd.
-# hadolint ignore=DL3002
-USER 0
-
-COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789e050e77ad87865e381d9917da55a168 /uv /uvx /bin/
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON=/usr/bin/python3
-
-WORKDIR /app
-
-# Dependencies before source, so editing a module does not re-resolve the whole
-# environment. --frozen fails rather than silently updating uv.lock.
-COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --no-editable
-
-COPY src ./src
-# --no-editable: the runtime stage copies only the virtualenv, so an editable
-# install's link back to /app/src would point at nothing there.
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
-
-
-FROM base AS runtime
+FROM zaproxy/zap-stable:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af AS runtime
 
 # Connects the pushed package to this repository, which is what gives a
 # workflow's GITHUB_TOKEN write access to it.
 LABEL org.opencontainers.image.source="https://github.com/jay-withers/security-testing"
 
+# For the zap-*.py wrappers, which still run on the system Python: unbuffered,
+# so their output interleaves with the scanner's log lines in order.
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    NODE_ENV=production
 
 # Patch the vendor image in one root layer, because Trivy fails a build on
 # fixable HIGH/CRITICAL findings and the ZAP image ships them between its own
@@ -75,6 +57,11 @@ ENV PYTHONUNBUFFERED=1 \
 #   and nothing at runtime installs anything. The image carries Debian's
 #   python3-pip and a newer pip in /usr/local, so both go: apt for the one,
 #   then pip uninstall until no pip answers.
+# - tini, as PID 1. The ZAP wrapper exits leaving its JVM behind, which is
+#   re-parented to PID 1. The Python scanner reaped it there with os.waitpid;
+#   Node only reaps its own children, so with node as PID 1 the dead JVM would
+#   stay a zombie, answer kill(-pgid, 0) as alive, and make every scan wait out
+#   the 120s shutdown grace before the next could start. tini reaps it.
 # - The packaged scans refuse to write reports unless /zap/wrk exists — they
 #   expect a bind mount, and the image does not create it. Created here as root,
 #   so it is handed to uid 1000 explicitly.
@@ -88,6 +75,7 @@ ARG OS_PATCH_DATE
 # hadolint ignore=DL3008,DL3013
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends tini \
     && rm -rf /zap/webswing \
     && site="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
     && python3 -m pip list --path "$site" --format=freeze --exclude pip \
@@ -106,7 +94,14 @@ RUN apt-get update \
     && mkdir -p /zap/wrk \
     && chown 1000:1000 /zap/wrk
 
-COPY --from=builder --chown=1000:1000 /app/.venv /app/.venv
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+
+# Root-owned and read-only to the scanner: it writes nothing but reports, and
+# those go to /zap/wrk. package.json is what makes the .ts files ES modules.
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./
+COPY src ./src
 
 # The ZAP image's own `zap` user, by number: a runtime enforcing runAsNonRoot
 # has to resolve the user before the container starts.
@@ -117,10 +112,11 @@ USER 1000
 # image's, which polls a ZAP API port that is only open mid-scan.
 HEALTHCHECK NONE
 
-# **The virtualenv is deliberately not on PATH.** The zap-*.py scripts run via
-# `#!/usr/bin/env python3` and need the system interpreter, where the base image
-# installed their `zaproxy` client; a venv first on PATH would hand them an
-# interpreter without it, and every scan would die on an ImportError.
+# Node runs the TypeScript sources directly (type stripping), so there is no
+# build output to ship. The zap-*.py scripts still run via
+# `#!/usr/bin/env python3` on the system interpreter, where the base image
+# installed their `zaproxy` client, so nothing here touches that Python.
+# `sectest selfcheck` passes `selfcheck` through as main.ts's argument.
 #
-# This ENTRYPOINT is the single source of truth for the executable's name.
-ENTRYPOINT ["/app/.venv/bin/sectest"]
+# This ENTRYPOINT is the single source of truth for the command.
+ENTRYPOINT ["/usr/bin/tini", "--", "node", "/app/src/main.ts"]

@@ -1,4 +1,4 @@
-// The digest: no Azure, no Resend. A port of tests/test_digest.py's digest
+// The digest: no Azure, no Resend. Ported from the Python scanner's test_digest.py's digest
 // cases, case for case; the mailer's are in mailer.test.ts.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
