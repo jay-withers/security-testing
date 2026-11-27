@@ -7,11 +7,11 @@
 # the ZAP wrappers use the image's own python3, which nothing here tests on.
 # Renovate raises patches only (jay-withers/renovate's mise preset).
 python = "3.11.18"
-# The scanner's runtime, which local runs and ci-node test on, and the image's
-# node (the Dockerfile's node image; ci-container-build checks the majors
-# match). Renovate moves minors and patches with the image's tag, and never
-# raises the major (jay-withers/renovate's npm preset): that moves by hand,
-# with the image and @types/node, once a new major is LTS.
+# The scanner's runtime, which local runs and ci-node test on. The image's
+# node comes from dev-containers' node-app, which should carry the same
+# release (ci-container-build checks the majors match). Renovate never raises
+# this major (jay-withers/renovate's npm preset): it moves by hand, with
+# node-app's and @types/node, once a new major is LTS.
 node = "26.13.1"
 pre-commit = "4.7.0"
 # actionlint lints workflow run: blocks with it, and silently skips them without it.

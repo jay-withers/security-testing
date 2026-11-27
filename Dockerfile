@@ -4,17 +4,21 @@
 # --platform linux/amd64 — the Makefile's `build` target does it rather than
 # leaving it to memory.
 
-# Node comes from the official image, not apt: Debian's nodejs is years behind,
-# and this is the release mise.toml pins, which local runs and ci-node test on
-# (ci-container-build checks the majors match; Renovate moves the tag with
-# mise.toml's node). Both images are Debian bookworm, so its node binary runs
-# on the ZAP image's glibc as it is.
-FROM node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS node
+# Node comes from dev-containers' node-app, the estate's Node runtime base, not
+# apt (Debian's nodejs is years behind). This image can't be built FROM it, as
+# its base has to be ZAP's, so the node binary is copied out of it below. Both
+# are Debian bookworm, so it runs on the ZAP image's glibc as it is. node-app's
+# Node should be the release mise.toml pins, which local runs and ci-node test
+# on (ci-container-build checks the majors match). Renovate moves node-app and
+# node-app-builder together, in one PR, at any time.
+FROM ghcr.io/jay-withers/dev-containers/node-app:v0.25.1@sha256:b85c9fbc858c750d8cc20cd040a924561fd45b89381da4c9c7ebcee70bed862b AS node
 
-# Production dependencies only. --ignore-scripts, as in CI: none of them needs
-# an install script, and none gets to run one. npm ci fails rather than
+# Production dependencies only, installed by node-app-builder (node-app plus
+# that Node release's npm), at node-app's version. --omit=dev overrides the
+# builder's NODE_ENV=development. --ignore-scripts, as in CI: none of them
+# needs an install script, and none gets to run one. npm ci fails rather than
 # resolving anything package-lock.json doesn't record.
-FROM node AS builder
+FROM ghcr.io/jay-withers/dev-containers/node-app-builder:v0.25.1@sha256:bcb0a63e11c6da407e59b506b4f53d30c0bf139329006c22a9f7e40a2b57c872 AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \

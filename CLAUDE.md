@@ -51,8 +51,9 @@ syntax (`erasableSyntaxOnly` enforces it) and import the `.ts` file.
   snake_case keys, because the digest reads earlier runs, the Python's
   included.
 - `Dockerfile`: `FROM zaproxy/zap-stable` (bookworm, uid 1000), with `node`
-  copied in from the official `node:<mise.toml's version>-bookworm-slim`
-  image, the production `node_modules` from a builder stage, and `src/`.
+  copied out of dev-containers' `node-app` (which can't be the base: ZAP's
+  must be), the production `node_modules` from a `node-app-builder` stage at
+  the same version, and `src/`.
   **The ENTRYPOINT is `tini -- node /app/src/main.ts`, and tini must stay.**
   A ZAP wrapper exits leaving its JVM and Xvfb behind, re-parented to PID 1;
   Node only reaps its own children, so as PID 1 it leaves them as zombies,
