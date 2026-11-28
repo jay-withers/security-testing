@@ -11,14 +11,14 @@
 # Node should be the release mise.toml pins, which local runs and ci-node test
 # on (ci-container-build checks the majors match). Renovate moves node-app and
 # node-app-builder together, in one PR, at any time.
-FROM ghcr.io/jay-withers/dev-containers/node-app:v0.25.3@sha256:038abb35466588df62e18ad6e67389a9508c3c1eb6c8967931a0db5193ca827a AS node
+FROM ghcr.io/jay-withers/dev-containers/node-app:v0.25.4@sha256:4e6807321f3594e9391cff8a6a0c83abd75dae540f87f48628b31958179329ef AS node
 
 # Production dependencies only, installed by node-app-builder (node-app plus
 # that Node release's npm), at node-app's version. --omit=dev overrides the
 # builder's NODE_ENV=development. --ignore-scripts, as in CI: none of them
 # needs an install script, and none gets to run one. npm ci fails rather than
 # resolving anything package-lock.json doesn't record.
-FROM ghcr.io/jay-withers/dev-containers/node-app-builder:v0.25.3@sha256:55e2c48b35360bea6e836d778b93db930b7251e0cd7c4942844474284c45912b AS builder
+FROM ghcr.io/jay-withers/dev-containers/node-app-builder:v0.25.4@sha256:5551093bf68e7b12050130efb860e9b7bc8aa607bb82fc4365d0a5c4e7d1b5e2 AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
